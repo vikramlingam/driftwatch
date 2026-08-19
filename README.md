@@ -4,7 +4,7 @@ DriftWatch is a developer intelligence radar for API breaking changes, tool sche
 
 ---
 
-## 🌟 3 Highest-Value Innovations
+## 3 Possibilities
 
 ### 1. Local Code Impact Mapper (Candidate Analyzer)
 Points DriftWatch at a local repository directory to identify potential impact candidates (files, functions, packages, or MCP tools) that may break due to upstream changes. Generates a **concrete migration patch preview (unified git diff)**.
