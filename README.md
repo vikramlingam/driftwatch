@@ -1,4 +1,4 @@
-# DriftWatch — Bright Data Scraper Studio & Self-Healing Developer Radar
+# DriftWatch: Bright Data Scraper Studio & Self-Healing Developer Radar
 
 DriftWatch is a developer intelligence radar for API breaking changes, tool schema drift, and silent deprecations across developer ecosystems. It collects updates via **Bright Data Scraper Studio (DCA)**, executes an authentic **4-stage closed-loop self-healing lifecycle** (`bdata scraper heal` + `bdata scraper approve`), strictly validates schema contracts with Pydantic v2 quarantine isolation, and maps upstream impact candidates directly into local codebases.
 
