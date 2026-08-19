@@ -669,8 +669,8 @@ async def run_pipeline(
             if force_engine == "bright_data_dca":
                 errors.append(f"Bright Data DCA collection failed: {str(exc)}")
 
-    # 2. If no DCA items (and force_engine is strictly direct), run upstream live documentation scrapers
-    if not raw_items and force_engine == "direct":
+    # 2. If no DCA items (and force_engine is not strictly bright_data_dca), run upstream live documentation scrapers
+    if not raw_items and force_engine != "bright_data_dca":
         telemetry_logs.append("Executing upstream live documentation scrapers...")
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 DriftWatch/1.0"}
         async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
