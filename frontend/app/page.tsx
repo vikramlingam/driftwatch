@@ -992,7 +992,7 @@ export default function Home() {
                           className="flex items-center gap-1.5 rounded-md border border-[#232a3d] bg-[#161a25] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#1d2332]"
                         >
                           <Eye size={13} />
-                          <span>Inspect Intelligence</span>
+                          <span>Inspect</span>
                         </button>
                       </div>
                     </div>
@@ -1260,31 +1260,6 @@ export default function Home() {
                   <p className="mt-1.5 text-[#94a3b8] leading-relaxed text-xs">{selectedItem.plain_summary}</p>
                 </div>
 
-                {/* What Changed from What in Modal (Authentic Migrations Only) */}
-                {(() => {
-                  const migration = getKnownMigration(selectedItem);
-                  if (migration) {
-                    return (
-                      <div className="rounded-md border border-[#1e2433] bg-[#0c0e13] p-4 text-xs">
-                        <span className="font-semibold uppercase tracking-wider text-[10px] text-[#64748b]">
-                          What Changed From What (Evolution)
-                        </span>
-                        <div className="mt-2.5 flex items-center gap-2 font-mono">
-                          <div className="flex-1 rounded bg-[#161a25] p-2.5 border border-red-500/30">
-                            <span className="text-[10px] text-red-400 font-bold block uppercase">Previous / Legacy State:</span>
-                            <code className="text-red-300 font-semibold">{migration.legacy}</code>
-                          </div>
-                          <span className="text-[#64748b] text-lg font-bold">→</span>
-                          <div className="flex-1 rounded bg-[#161a25] p-2.5 border border-emerald-500/30">
-                            <span className="text-[10px] text-emerald-400 font-bold block uppercase">New / Recommended State:</span>
-                            <code className="text-emerald-300 font-semibold">{migration.replacement}</code>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
 
                 {selectedItem.affected_code && selectedItem.affected_code.length > 0 && (
                   <div>
