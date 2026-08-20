@@ -1,0 +1,57 @@
+[
+  {
+    "_note": "Sample structured record extracted from Stripe API changelog",
+    "entry_id": "stripe-2024-04-api-charges-payment-methods",
+    "ecosystem": "Stripe",
+    "title": "Stripe API 2024-04: Breaking updates to Charges and PaymentIntents",
+    "category": "BREAKING_CHANGE",
+    "urgency": "HIGH",
+    "plain_summary": "The legacy charge.create endpoint now requires explicit customer payment_method parameters. The statement_descriptor field has been constrained to alphanumeric characters.",
+    "affected_code": [
+      "stripe.Charge.create",
+      "statement_descriptor",
+      "payment_method",
+      "PaymentIntent.confirm"
+    ],
+    "source_url": "https://docs.stripe.com/changelog",
+    "discovered_at": "2024-04-15T10:00:00Z",
+    "execution_engine": "bright_data_dca",
+    "scraped_at": "2024-04-15T10:05:00Z"
+  },
+  {
+    "_note": "Sample structured record extracted from Stripe API changelog",
+    "entry_id": "stripe-2024-03-sources-api-deprecation",
+    "ecosystem": "Stripe",
+    "title": "Stripe API 2024-03: Deprecation of Sources API in favor of PaymentMethods",
+    "category": "DEPRECATION",
+    "urgency": "MEDIUM",
+    "plain_summary": "The Sources API (stripe.Source) is deprecated. Developers are urged to migrate to PaymentMethods API before the sunset deadline.",
+    "affected_code": [
+      "stripe.Source",
+      "stripe.Source.create",
+      "stripe.PaymentMethod.attach"
+    ],
+    "source_url": "https://docs.stripe.com/changelog",
+    "discovered_at": "2024-03-10T09:30:00Z",
+    "execution_engine": "bright_data_dca",
+    "scraped_at": "2024-03-10T09:35:00Z"
+  },
+  {
+    "_note": "Sample structured record extracted from ModelContextProtocol changelog",
+    "entry_id": "mcp-2024-11-protocol-schema-update",
+    "ecosystem": "ModelContextProtocol",
+    "title": "Model Context Protocol Tool Schema Protocol Expansion",
+    "category": "TOOL_SCHEMA_CHANGE",
+    "urgency": "MEDIUM",
+    "plain_summary": "Model Context Protocol server tools now require tool_choice parameter and return structured JSON schemas.",
+    "affected_code": [
+      "mcp_server_tool",
+      "tool_choice",
+      "json_schema"
+    ],
+    "source_url": "https://raw.githubusercontent.com/modelcontextprotocol/specification/main/README.md",
+    "discovered_at": "2024-11-25T08:00:00Z",
+    "execution_engine": "bright_data_dca",
+    "scraped_at": "2024-11-25T08:05:00Z"
+  }
+]

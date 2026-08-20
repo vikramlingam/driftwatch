@@ -115,7 +115,7 @@ The backend includes an asynchronous background watcher (`backend/watcher.py`) t
 | `backend/models.py` | Pydantic v2 schemas for advisories, audits, recovery evidence reports, and watcher states. |
 | `backend/cli.py` | Terminal interface for `scan`, `heal`, `impact`, `watch`, and `audit` commands. |
 | `frontend/app/page.tsx` | Next.js dark-themed dashboard with Bento Box cards, impact mapper, watcher cockpit, and manifest auditor. |
-| `tests/test_pipeline.py` | 14 automated pytest tests covering database, API endpoints, impact scanning, and self-healing. |
+| `tests/test_pipeline.py` | 23 automated pytest tests covering database, API endpoints, impact scanning, and self-healing. |
 
 ---
 
@@ -131,7 +131,7 @@ This single command checks dependencies, starts FastAPI on `http://localhost:800
 ```bash
 pytest -v
 ```
-All 14 tests pass deterministically in under 0.5 seconds with zero external network dependencies.
+All 23 tests pass deterministically with zero external network dependencies.
 
 ### 4. Run Terminal CLI Commands
 ```bash

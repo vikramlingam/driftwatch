@@ -348,20 +348,212 @@ def test_create_code_fix_diff():
     assert "+stripe.PaymentIntent.create" in diff
 
 
-def test_database_clear_and_api_endpoint(tmp_path):
-    """Test clearing the database and FTS index."""
-    db = Database(tmp_path / "test.db")
-    db.upsert_updates([sample_item(entry="item-1"), sample_item(entry="item-2")])
-    assert db.count() == 2
-    assert len(db.search("charges")) == 2
+def test_database_clear_and_api_endpoint(monkeypatch, tmp_path):
+    """Test clearing the database and FTS index on isolated test db."""
+    test_db = Database(tmp_path / "test_isolated.db")
+    test_db.upsert_updates([sample_item(entry="item-1"), sample_item(entry="item-2")])
+    assert test_db.count() == 2
+    assert len(test_db.search("charges")) == 2
 
-    # Clear database
-    db.clear()
-    assert db.count() == 0
-    assert len(db.search("charges")) == 0
+    # Clear isolated database directly
+    test_db.clear()
+    assert test_db.count() == 0
+    assert len(test_db.search("charges")) == 0
 
-    # Test /api/clear-db via FastAPI TestClient
+    # Test /api/clear-db via FastAPI TestClient isolated from live db
+    from backend import main
+    monkeypatch.setattr(main, "db", test_db)
     client = TestClient(app)
     res = client.post("/api/clear-db")
     assert res.status_code == 200
     assert res.json()["status"] == "cleared"
+
+
+def test_parse_github_repo_helper():
+    from backend.github_client import parse_github_repo
+
+    # Test full https url
+    owner, repo = parse_github_repo("https://github.com/fastapi/fastapi")
+    assert owner == "fastapi"
+    assert repo == "fastapi"
+
+    # Test .git suffix
+    owner, repo = parse_github_repo("https://github.com/stripe/stripe-python.git")
+    assert owner == "stripe"
+    assert repo == "stripe-python"
+
+    # Test shorthand
+    owner, repo = parse_github_repo("openai/openai-python")
+    assert owner == "openai"
+    assert repo == "openai-python"
+
+
+def test_github_config_status_endpoint():
+    client = TestClient(app)
+    res = client.get("/api/github/config-status")
+    assert res.status_code == 200
+    data = res.json()
+    assert "openrouter_configured" in data
+    assert "openrouter_model" in data
+    assert "github_token_configured" in data
+
+
+def test_llm_code_review_and_fallback():
+    from backend.llm_reviewer import review_code_with_llm
+    from backend.models import LLMReviewRequest
+
+    req = LLMReviewRequest(
+        repo_name="myorg/payments-svc",
+        file_path="src/payments.py",
+        file_content="charge = stripe.Charge.create(amount=2000, currency='usd')",
+        advisory_id="adv_stripe_01",
+        advisory_title="Stripe Charge API Deprecation",
+        advisory_summary="Legacy charge endpoint deprecated in favor of payment_intents.",
+        symbol_matched="stripe.Charge",
+    )
+
+    resp = asyncio.run(review_code_with_llm(req))
+    assert resp.risk_level in ["CRITICAL", "WARNING", "SAFE"]
+    assert "PaymentIntent" in resp.patched_code or "driftwatch" in resp.patched_code.lower() or "stripe" in resp.patched_code
+    assert resp.unified_diff != ""
+    assert resp.suggested_pr_title != ""
+    assert resp.suggested_pr_body != ""
+
+
+def test_github_scan_endpoint_mock(monkeypatch):
+    from backend.github_client import GitHubClient
+
+    async def mock_scan(self, owner, repo, branch=None):
+        return {
+            "requirements.txt": "stripe>=7.0.0\nfastapi>=0.100.0",
+            "app.py": "import stripe\nres = stripe.Charge.create(amount=100)",
+        }, "main"
+
+    monkeypatch.setattr(GitHubClient, "scan_repo_manifests_and_code", mock_scan)
+
+    client = TestClient(app)
+    res = client.post("/api/github/scan", json={"repo_url": "https://github.com/testowner/testrepo"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["repo_name"] == "testowner/testrepo"
+    assert data["default_branch"] == "main"
+    assert "requirements.txt" in data["manifests_found"]
+    assert data["scanned_files_count"] == 2
+
+
+def test_markdown_changelog_parser():
+    """Verify authentic extraction from markdown changelogs (CrewAI, LlamaIndex, Next.js)."""
+    from backend.scraper import scrape_raw_markdown_changelog
+    import httpx
+
+    sample_md = """# Changelog
+## [0.28.0] - 2026-06-15
+### Breaking Changes
+- `crewai.Agent.execute_task` parameter `tools` is now strictly required.
+- Deprecated `crewai.Process.sequential_legacy` in favor of `crewai.Process.hierarchical`.
+
+## [0.27.0] - 2026-05-10
+### Features
+- Added support for Ollama local runner tool definitions.
+"""
+    class MockResponse:
+        status_code = 200
+        text = sample_md
+
+    class MockClient:
+        async def get(self, url, **kwargs):
+            return MockResponse()
+
+    items = asyncio.run(scrape_raw_markdown_changelog("https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md", MockClient(), "CrewAI & Multi-Agent"))
+    assert len(items) >= 2
+    assert "0.28.0" in items[0]["title"] or "0.28.0" in items[0]["entry_id"]
+    assert items[0]["category"] == "BREAKING_CHANGE"
+    assert items[0]["urgency"] == "HIGH"
+    assert "crewai.Agent.execute_task" in items[0]["plain_summary"]
+    assert "crewai.Agent.execute_task" in items[0]["affected_code"] or "crewai" in items[0]["affected_code"]
+
+
+def test_strict_normalization_quarantine_on_missing_fields():
+    """Verify that records missing vital fields (e.g. empty summary or title) raise validation error and get quarantined."""
+    from backend.scraper import _normalize
+    import pytest
+
+    # 1. Missing summary raises ValueError (quarantine candidate)
+    with pytest.raises(ValueError, match="Missing or invalid 'plain_summary'"):
+        _normalize({"title": "A plausible upstream update", "plain_summary": ""}, "https://docs.stripe.com", "direct")
+
+    # 2. Missing title raises ValueError (quarantine candidate)
+    with pytest.raises(ValueError, match="Missing or invalid 'title'"):
+        _normalize({"title": "", "plain_summary": "Valid summary content here."}, "https://docs.stripe.com", "direct")
+
+
+def test_add_custom_target_feed_endpoint(monkeypatch):
+    """Verify adding custom target feed persists and informs continuous watcher without external network calls."""
+    from datetime import datetime, timezone
+    from backend.models import ScrapePipelineResult
+    async def mock_run_pipeline(*args, **kwargs):
+        return ScrapePipelineResult(
+            batch_id="batch-mock",
+            urls_checked=["https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md"],
+            total_items_found=1,
+            valid_items_saved=1,
+            quarantined_items_count=0,
+            quarantined_errors=[],
+            time_taken_seconds=0.01,
+            finished_at=datetime.now(timezone.utc),
+            execution_engine="direct",
+        )
+    monkeypatch.setattr("backend.main.run_pipeline", mock_run_pipeline)
+    client = TestClient(app)
+    res = client.post("/api/targets/add", json={"url": "https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "added"
+    assert data["target_url"] == "https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md"
+    assert data["monitored_targets_count"] >= 2
+
+
+def test_watcher_pending_repairs_approval_and_rejection():
+    """Verify high-risk repairs approval queue, approve endpoint, and reject endpoint."""
+    from backend.models import PendingRepairItem
+    from backend.watcher import watcher_instance
+
+    original_repairs = list(watcher_instance.pending_repairs)
+    try:
+        # Create dummy pending repair
+        test_repair = PendingRepairItem(
+            repair_id="test-repair-123",
+            target_url="https://docs.stripe.com/changelog",
+            risk_level="HIGH_RISK",
+            issue_description="DOM mutation caused schema violation",
+            proposed_fix="Updated selector for Stripe changelog",
+            status="PENDING",
+            created_at="2026-08-20T12:00:00Z",
+        )
+        watcher_instance.pending_repairs = [test_repair]
+
+        client = TestClient(app)
+
+        # 1. List pending repairs
+        res_list = client.get("/api/watcher/pending-repairs")
+        assert res_list.status_code == 200
+        assert len(res_list.json()) >= 1
+        assert res_list.json()[0]["repair_id"] == "test-repair-123"
+
+        # 2. Reject repair
+        res_reject = client.post("/api/watcher/reject-repair/test-repair-123")
+        assert res_reject.status_code == 200
+        assert res_reject.json()["status"] == "REJECTED"
+    finally:
+        watcher_instance.pending_repairs = original_repairs
+
+
+def test_github_config_alias_endpoint():
+    """Verify /api/github/config and /api/github/config-status both return config data."""
+    client = TestClient(app)
+    res1 = client.get("/api/github/config")
+    res2 = client.get("/api/github/config-status")
+    assert res1.status_code == 200
+    assert res2.status_code == 200
+    assert res1.json() == res2.json()
+

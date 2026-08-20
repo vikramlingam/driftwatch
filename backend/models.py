@@ -82,9 +82,36 @@ class RecoveryEvidenceReport(StrictModel):
 class SelfHealingLoopRequest(StrictModel):
     collector_id: str | None = None
     target_url: str = "https://docs.stripe.com/changelog"
-    issue_description: str = "The documentation layout updated. Re-extract release headlines, breaking changes, and affected methods."
-    auto_approve: bool = True
+    issue_description: str | None = None
+    observed_break_description: str | None = None
+    auto_approve: bool | None = None
+    auto_approve_patch: bool | None = None
     re_run_after_approval: bool = True
+
+    def get_description(self) -> str:
+        return (
+            self.issue_description
+            or self.observed_break_description
+            or "The documentation layout updated. Re-extract release headlines, breaking changes, and affected methods."
+        )
+
+    def get_auto_approve(self) -> bool:
+        if self.auto_approve is not None:
+            return self.auto_approve
+        if self.auto_approve_patch is not None:
+            return self.auto_approve_patch
+        return True
+
+
+class PendingRepairItem(StrictModel):
+    repair_id: str
+    target_url: str
+    risk_level: str
+    issue_description: str
+    proposed_fix: str | None = None
+    status: Literal["PENDING", "APPROVED", "REJECTED"]
+    created_at: str
+    evidence_report: RecoveryEvidenceReport | None = None
 
 
 class SelfHealingLoopResponse(StrictModel):
@@ -154,3 +181,77 @@ class WatcherStatusResponse(StrictModel):
     heal_events_triggered_count: int
     auto_approve_enabled: bool
     recent_watcher_logs: list[str] = Field(default_factory=list)
+    pending_repairs: list[PendingRepairItem] = Field(default_factory=list)
+
+
+# Innovation: GitHub AI Remediation & PR Studio Models
+class GitHubScanRequest(StrictModel):
+    repo_url: str
+    branch: str | None = None
+    github_token: str | None = None
+
+
+class GitHubScanResponse(StrictModel):
+    repo_name: str
+    default_branch: str
+    manifests_found: list[str]
+    scanned_files_count: int
+    impact_matches: list[FileImpactMatch]
+    advisories_detected: list[str]
+    openrouter_configured: bool
+    github_token_configured: bool
+
+
+class LLMReviewRequest(StrictModel):
+    repo_name: str
+    file_path: str
+    file_content: str
+    advisory_id: str
+    advisory_title: str
+    advisory_summary: str = ""
+    symbol_matched: str = ""
+    model_override: str | None = None
+    api_key_override: str | None = None
+    github_token: str | None = None
+
+
+class LLMReviewResponse(StrictModel):
+    risk_level: Literal["CRITICAL", "WARNING", "SAFE"]
+    risk_score: int
+    review_title: str
+    review_summary: str
+    breaking_changes_analysis: list[str]
+    patched_code: str
+    unified_diff: str
+    suggested_pr_title: str
+    suggested_pr_body: str
+    model_used: str
+    execution_mode: Literal["openrouter_llm", "rule_based_fallback"]
+
+
+class CreatePRRequest(StrictModel):
+    repo_name: str
+    file_path: str
+    patched_code: str
+    pr_title: str
+    pr_body: str
+    base_branch: str = "main"
+    branch_name: str | None = None
+    github_token_override: str | None = None
+
+
+class CreatePRResponse(StrictModel):
+    success: bool
+    pr_url: str
+    pr_number: int | None = None
+    branch_created: str
+    commit_sha: str | None = None
+    message: str
+
+
+class GitHubConfigStatus(StrictModel):
+    openrouter_configured: bool
+    openrouter_model: str
+    github_token_configured: bool
+    github_username: str
+

@@ -49,6 +49,24 @@ CREATE TRIGGER IF NOT EXISTS doc_updates_au AFTER UPDATE ON doc_updates BEGIN
     INSERT INTO doc_updates_fts(rowid, entry_id, ecosystem, title, plain_summary, affected_code)
     VALUES (new.rowid, new.entry_id, new.ecosystem, new.title, new.plain_summary, new.affected_code);
 END;
+
+CREATE TABLE IF NOT EXISTS custom_target_feeds (
+    url TEXT PRIMARY KEY,
+    ecosystem TEXT NOT NULL,
+    added_at TIMESTAMP NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS watcher_pending_repairs (
+    repair_id TEXT PRIMARY KEY,
+    target_url TEXT NOT NULL,
+    risk_level TEXT NOT NULL,
+    issue_description TEXT NOT NULL,
+    proposed_fix TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    evidence_json TEXT
+);
 """
 
 
@@ -192,3 +210,68 @@ class Database:
             cursor.execute("DELETE FROM doc_updates")
             cursor.execute("DELETE FROM doc_updates_fts")
             return cursor.rowcount
+
+    def add_custom_target(self, url: str, ecosystem: str = "Custom") -> None:
+        """Persist a user custom target feed to the database."""
+        from datetime import datetime, timezone
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO custom_target_feeds (url, ecosystem, added_at, is_active)
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT(url) DO UPDATE SET is_active=1, ecosystem=excluded.ecosystem""",
+                (url, ecosystem, datetime.now(timezone.utc).isoformat())
+            )
+
+    def get_custom_targets(self) -> list[str]:
+        """Fetch all active persisted custom target feed URLs."""
+        with self.connection() as conn:
+            rows = conn.execute("SELECT url FROM custom_target_feeds WHERE is_active=1").fetchall()
+            return [r["url"] for r in rows]
+
+    def save_pending_repair(self, repair: dict) -> None:
+        """Persist or update a high-risk watcher repair item."""
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO watcher_pending_repairs (
+                    repair_id, target_url, risk_level, issue_description,
+                    proposed_fix, status, created_at, evidence_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(repair_id) DO UPDATE SET
+                    status=excluded.status,
+                    proposed_fix=excluded.proposed_fix""",
+                (
+                    repair.get("repair_id"),
+                    repair.get("target_url"),
+                    repair.get("risk_level", "HIGH_RISK"),
+                    repair.get("issue_description", ""),
+                    repair.get("proposed_fix", ""),
+                    repair.get("status", "PENDING"),
+                    repair.get("created_at", ""),
+                    json.dumps(repair.get("evidence", {}))
+                )
+            )
+
+    def get_pending_repairs(self) -> list[dict]:
+        """Fetch all stored pending/approved repairs."""
+        with self.connection() as conn:
+            rows = conn.execute("SELECT * FROM watcher_pending_repairs ORDER BY created_at DESC").fetchall()
+            results = []
+            for r in rows:
+                item = dict(r)
+                if item.get("evidence_json"):
+                    try:
+                        item["evidence"] = json.loads(item["evidence_json"])
+                    except Exception:
+                        item["evidence"] = {}
+                results.append(item)
+            return results
+
+    def update_pending_repair_status(self, repair_id: str, status: str) -> bool:
+        """Update status of a pending repair."""
+        with self.connection() as conn:
+            cursor = conn.execute(
+                "UPDATE watcher_pending_repairs SET status=? WHERE repair_id=?",
+                (status, repair_id)
+            )
+            return cursor.rowcount > 0
+

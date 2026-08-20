@@ -1,14 +1,23 @@
-"""FastAPI application for DriftWatch."""
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from .audit import audit_project_file, create_code_fix
 from .config import settings
 from .db import Database
+from .github_client import GitHubClient, parse_github_repo
 from .impact import scan_directory_for_impact, scan_file_for_impacts
+from .llm_reviewer import review_code_with_llm
 from .models import (
     CodebaseImpactReport,
+    CreatePRRequest,
+    CreatePRResponse,
     DocUpdateItem,
+    GitHubConfigStatus,
+    GitHubScanRequest,
+    GitHubScanResponse,
+    LLMReviewRequest,
+    LLMReviewResponse,
     ProjectAuditRequest,
     ScrapePipelineResult,
     ScrapeRequest,
@@ -21,7 +30,20 @@ from .scraper import fix_scraper_with_ai, run_closed_loop_self_healing, run_pipe
 from .watcher import watcher_instance
 
 db = Database(settings.db_path)
-app = FastAPI(title="DriftWatch", version="1.0.0")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Warm up database if empty on fresh install/restart
+    if db.count() == 0:
+        try:
+            await run_pipeline(settings.target_urls)
+        except Exception:
+            pass
+    yield
+
+
+app = FastAPI(title="DriftWatch", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +60,7 @@ def health() -> dict:
         "status": "ready",
         "database_records": db.count(),
         "active_scraper": bool(settings.bright_data_collector_id),
+        "bright_data_configured": bool(settings.bright_data_collector_id),
         "collector_id": settings.bright_data_collector_id,
         "db_path": str(settings.db_path),
         "watcher_running": watcher_instance.is_running,
@@ -71,24 +94,41 @@ async def scrape(request: ScrapeRequest):
     )
 
 
+@app.post("/api/targets/add")
+async def add_target_feed(payload: dict):
+    url = payload.get("url", "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing required 'url' parameter.")
+    if url not in settings.target_urls:
+        settings.target_urls.append(url)
+    watcher_instance.add_target(url)
+    scrape_res = await run_pipeline([url])
+    return {
+        "status": "added",
+        "target_url": url,
+        "valid_items_saved": scrape_res.valid_items_saved,
+        "monitored_targets_count": len(watcher_instance.target_urls),
+    }
+
+
 @app.post("/api/self-heal-loop", response_model=SelfHealingLoopResponse)
 async def self_heal_loop(request: SelfHealingLoopRequest):
     return await run_closed_loop_self_healing(
         collector_id=request.collector_id,
         target_url=request.target_url,
-        issue_description=request.issue_description,
-        auto_approve=request.auto_approve,
+        issue_description=request.get_description(),
+        auto_approve=request.get_auto_approve(),
         re_run_after_approval=request.re_run_after_approval,
     )
 
 
 @app.get("/api/updates")
-def updates(ecosystem: str | None = None, limit: int = 100):
+def updates(ecosystem: str | None = None, limit: int = 500):
     return db.latest(ecosystem=ecosystem, limit=limit)
 
 
 @app.get("/api/search")
-def search(q: str = "", ecosystem: str | None = None, limit: int = 50):
+def search(q: str = "", ecosystem: str | None = None, limit: int = 500):
     if not q.strip():
         return db.latest(ecosystem=ecosystem, limit=limit)
     return db.search(q.strip(), ecosystem=ecosystem, limit=limit)
@@ -141,6 +181,27 @@ def watcher_stop():
     return watcher_instance.status()
 
 
+@app.get("/api/watcher/pending-repairs")
+def watcher_pending_repairs():
+    return watcher_instance.pending_repairs
+
+
+@app.post("/api/watcher/approve-repair/{repair_id}")
+async def watcher_approve_repair(repair_id: str):
+    approved = await watcher_instance.approve_repair(repair_id)
+    if not approved:
+        raise HTTPException(status_code=404, detail=f"Pending repair with id '{repair_id}' not found.")
+    return approved
+
+
+@app.post("/api/watcher/reject-repair/{repair_id}")
+def watcher_reject_repair(repair_id: str):
+    rejected = watcher_instance.reject_repair(repair_id)
+    if not rejected:
+        raise HTTPException(status_code=404, detail=f"Pending repair with id '{repair_id}' not found.")
+    return rejected
+
+
 @app.get("/api/download-fix", response_class=PlainTextResponse)
 def download_fix(ecosystem: str = "custom", old_code: str = "", new_code: str = "", filename: str = "app.py"):
     return create_code_fix(ecosystem, old_code, new_code, sample_filename=filename)
@@ -153,3 +214,108 @@ async def fix_scraper(payload: dict):
         raise HTTPException(status_code=400, detail="No collector ID provided or found in environment (.env).")
     issue_desc = payload.get("issue_description", "The documentation webpage layout has updated selectors.")
     return await fix_scraper_with_ai(collector_id, issue_desc)
+
+
+# Innovation: GitHub AI Remediation & PR Studio Endpoints
+@app.get("/api/github/config-status", response_model=GitHubConfigStatus)
+def github_config_status():
+    return GitHubConfigStatus(
+        openrouter_configured=bool(settings.openrouter_api_key),
+        openrouter_model=settings.openrouter_model,
+        github_token_configured=bool(settings.github_token),
+        github_username=settings.github_username,
+    )
+
+
+@app.get("/api/github/config", response_model=GitHubConfigStatus)
+def github_config_alias():
+    return github_config_status()
+
+
+@app.post("/api/github/scan", response_model=GitHubScanResponse)
+async def github_scan(request: GitHubScanRequest):
+    try:
+        owner, repo = parse_github_repo(request.repo_url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    client = GitHubClient(token=request.github_token or settings.github_token)
+    try:
+        found_files, default_branch = await client.scan_repo_manifests_and_code(owner, repo, branch=request.branch)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to scan GitHub repository: {str(e)}")
+
+    advisories = [DocUpdateItem.model_validate(x) for x in db.latest(limit=200)]
+    all_matches = []
+    advisories_hit = set()
+    manifests_found = []
+
+    for file_path, content in found_files.items():
+        if any(file_path.endswith(m) for m in ["requirements.txt", "package.json", "pyproject.toml", "mcp_config.json", "README.md"]):
+            manifests_found.append(file_path)
+        file_matches = scan_file_for_impacts(file_path, content, advisories)
+        if file_matches:
+            all_matches.extend(file_matches)
+            for m in file_matches:
+                advisories_hit.add(f"{m.advisory_title} ({m.urgency})")
+
+    return GitHubScanResponse(
+        repo_name=f"{owner}/{repo}",
+        default_branch=default_branch,
+        manifests_found=manifests_found,
+        scanned_files_count=len(found_files),
+        impact_matches=all_matches,
+        advisories_detected=list(advisories_hit),
+        openrouter_configured=bool(settings.openrouter_api_key),
+        github_token_configured=bool(client.token),
+    )
+
+
+@app.post("/api/github/review", response_model=LLMReviewResponse)
+async def github_review(request: LLMReviewRequest):
+    file_content = request.file_content
+    # Automatically fetch full file content from GitHub to ensure complete in-place patching
+    if request.repo_name and request.file_path:
+        try:
+            owner, repo = parse_github_repo(request.repo_name)
+            client = GitHubClient(token=request.github_token or settings.github_token)
+            full_content, _ = await client.fetch_file_content(owner, repo, request.file_path)
+            if full_content and len(full_content.strip()) > len(file_content.strip()):
+                file_content = full_content
+        except Exception:
+            pass  # Fall back to provided content
+
+    updated_req = request.model_copy(update={"file_content": file_content})
+    return await review_code_with_llm(updated_req)
+
+
+@app.post("/api/github/create-pr", response_model=CreatePRResponse)
+async def github_create_pr(request: CreatePRRequest):
+    try:
+        owner, repo = parse_github_repo(request.repo_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    token = request.github_token_override or settings.github_token
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing GitHub Token. Please set GITHUB_TOKEN in your .env or provide it in the input field.",
+        )
+
+    client = GitHubClient(token=token)
+    try:
+        res = await client.create_pull_request(
+            owner=owner,
+            repo=repo,
+            file_path=request.file_path,
+            patched_code=request.patched_code,
+            pr_title=request.pr_title,
+            pr_body=request.pr_body,
+            base_branch=request.base_branch,
+            custom_branch=request.branch_name,
+        )
+        return CreatePRResponse.model_validate(res)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to create Pull Request on GitHub: {str(e)}")
+

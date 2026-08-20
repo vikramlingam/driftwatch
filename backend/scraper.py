@@ -168,15 +168,17 @@ async def scrape_openai_changelog(url: str, client: httpx.AsyncClient) -> list[d
         header = lines[0]
         version_match = re.search(r"\[?(\d+\.\d+\.\d+)\]?", header)
         version = version_match.group(1) if version_match else "Latest"
-        body = " ".join([l.strip() for l in lines[1:] if l.strip() and not l.startswith("#")])
-        if not body or len(body) < 5:
-            body = f"OpenAI Python SDK release v{version} updates."
-        category, urgency = classify_category_and_urgency(body)
+        body_lines = [l.strip().lstrip("-* ") for l in lines[1:] if l.strip() and not l.startswith("#")]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
         discovered_at = extract_release_date(f"{header} {body}")
+        first_line = body_lines[0] if body_lines else f"v{version}"
         items.append({
             "entry_id": f"openai-v{version}",
             "ecosystem": "OpenAI",
-            "title": f"OpenAI SDK v{version}",
+            "title": f"OpenAI SDK v{version}: {first_line[:60]}",
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
@@ -202,15 +204,17 @@ async def scrape_anthropic_changelog(url: str, client: httpx.AsyncClient) -> lis
         header = lines[0]
         version_match = re.search(r"(\d+\.\d+\.\d+)", header)
         version = version_match.group(1) if version_match else "Update"
-        body = " ".join([l.strip() for l in lines[1:] if l.strip() and not l.startswith("#")])
-        if not body or len(body) < 5:
-            body = f"Anthropic Python SDK release v{version} updates."
-        category, urgency = classify_category_and_urgency(body)
+        body_lines = [l.strip().lstrip("-* ") for l in lines[1:] if l.strip() and not l.startswith("#")]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
         discovered_at = extract_release_date(f"{header} {body}")
+        first_line = body_lines[0] if body_lines else f"v{version}"
         items.append({
             "entry_id": f"anthropic-v{version}",
             "ecosystem": "Anthropic",
-            "title": f"Anthropic SDK v{version}",
+            "title": f"Anthropic SDK v{version}: {first_line[:60]}",
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
@@ -234,6 +238,8 @@ async def scrape_aws_changelog(url: str, client: httpx.AsyncClient) -> list[dict
         body = sections[i + 1].strip()
         body_clean = re.sub(r"\* api-change:``(.*?)``:", r"Service: \1 -", body)
         body_clean = " ".join(body_clean.split())
+        if not body_clean or len(body_clean) < 10:
+            continue
         category, urgency = classify_category_and_urgency(body_clean)
         discovered_at = extract_release_date(f"{version} {body_clean}")
         items.append({
@@ -242,7 +248,7 @@ async def scrape_aws_changelog(url: str, client: httpx.AsyncClient) -> list[dict
             "title": f"AWS Boto3 {version}",
             "category": category,
             "urgency": urgency,
-            "plain_summary": body_clean[:400] or f"AWS Boto3 release {version}.",
+            "plain_summary": body_clean[:400],
             "affected_code": extract_code_tokens(body_clean) or ["boto3", "botocore"],
             "source_url": "https://aws.amazon.com/releasenotes/",
             "discovered_at": discovered_at,
@@ -265,15 +271,17 @@ async def scrape_gcp_changelog(url: str, client: httpx.AsyncClient) -> list[dict
         header = lines[0]
         version_match = re.search(r"\[?(\d+\.\d+\.\d+)\]?", header)
         version = version_match.group(1) if version_match else "Update"
-        body = " ".join([l.strip() for l in lines[1:] if l.strip() and not l.startswith("#")])
-        if not body or len(body) < 5:
-            body = f"Google Cloud Gemini GenAI SDK release v{version} updates."
-        category, urgency = classify_category_and_urgency(body)
+        body_lines = [l.strip().lstrip("-* ") for l in lines[1:] if l.strip() and not l.startswith("#")]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
         discovered_at = extract_release_date(f"{header} {body}")
+        first_line = body_lines[0] if body_lines else f"v{version}"
         items.append({
             "entry_id": f"gcp-genai-v{version}",
             "ecosystem": "GCP",
-            "title": f"Google Cloud GenAI SDK v{version}",
+            "title": f"Google Cloud GenAI SDK v{version}: {first_line[:60]}",
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
@@ -299,15 +307,17 @@ async def scrape_supabase_changelog(url: str, client: httpx.AsyncClient) -> list
         header = lines[0]
         version_match = re.search(r"\[?(\d+\.\d+\.\d+)\]?", header)
         version = version_match.group(1) if version_match else "Update"
-        body = " ".join([l.strip() for l in lines[1:] if l.strip() and not l.startswith("#")])
-        if not body or len(body) < 5:
-            body = f"Supabase client release v{version} updates."
-        category, urgency = classify_category_and_urgency(body)
+        body_lines = [l.strip().lstrip("-* ") for l in lines[1:] if l.strip() and not l.startswith("#")]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
         discovered_at = extract_release_date(f"{header} {body}")
+        first_line = body_lines[0] if body_lines else f"v{version}"
         items.append({
             "entry_id": f"supabase-v{version}",
             "ecosystem": "Supabase",
-            "title": f"Supabase JS v{version}",
+            "title": f"Supabase JS v{version}: {first_line[:60]}",
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
@@ -333,15 +343,17 @@ async def scrape_fastapi_changelog(url: str, client: httpx.AsyncClient) -> list[
         header = lines[0]
         version_match = re.search(r"(\d+\.\d+\.\d+)", header)
         version = version_match.group(1) if version_match else "Update"
-        body = " ".join([l.strip() for l in lines[1:] if l.strip() and not l.startswith("#")])
-        if not body or len(body) < 5:
-            body = f"FastAPI framework release {version} updates."
-        category, urgency = classify_category_and_urgency(body)
+        body_lines = [l.strip().lstrip("-* ") for l in lines[1:] if l.strip() and not l.startswith("#")]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
         discovered_at = extract_release_date(f"{header} {body}")
+        first_line = body_lines[0] if body_lines else f"v{version}"
         items.append({
             "entry_id": f"fastapi-v{version}",
             "ecosystem": "FastAPI",
-            "title": f"FastAPI Framework {version}",
+            "title": f"FastAPI Framework {version}: {first_line[:60]}",
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
@@ -367,15 +379,17 @@ async def scrape_langchain_changelog(url: str, client: httpx.AsyncClient) -> lis
         header = lines[0]
         version_match = re.search(r"(\d+\.\d+\.\d+)", header)
         version = version_match.group(1) if version_match else "Update"
-        body = " ".join([l.strip() for l in lines[1:] if l.strip() and not l.startswith("#")])
-        if not body or len(body) < 5:
-            body = f"LangChain Core release {version} tool definitions and prompt changes."
-        category, urgency = classify_category_and_urgency(body)
+        body_lines = [l.strip().lstrip("-* ") for l in lines[1:] if l.strip() and not l.startswith("#")]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
         discovered_at = extract_release_date(f"{header} {body}")
+        first_line = body_lines[0] if body_lines else f"v{version}"
         items.append({
             "entry_id": f"langchain-v{version}",
             "ecosystem": "LangChain & Agents",
-            "title": f"LangChain Core v{version}",
+            "title": f"LangChain Core v{version}: {first_line[:60]}",
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
@@ -401,15 +415,17 @@ async def scrape_ollama_changelog(url: str, client: httpx.AsyncClient) -> list[d
         header = lines[0]
         version_match = re.search(r"(\d+\.\d+\.\d+)", header)
         version = version_match.group(1) if version_match else "Update"
-        body = " ".join([l.strip() for l in lines[1:] if l.strip() and not l.startswith("#")])
-        if not body or len(body) < 5:
-            body = f"Ollama release v{version} tool calling and model changes."
-        category, urgency = classify_category_and_urgency(body)
+        body_lines = [l.strip().lstrip("-* ") for l in lines[1:] if l.strip() and not l.startswith("#")]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
         discovered_at = extract_release_date(f"{header} {body}")
+        first_line = body_lines[0] if body_lines else f"v{version}"
         items.append({
             "entry_id": f"ollama-v{version}",
             "ecosystem": "Ollama & Local LLMs",
-            "title": f"Ollama Model Runner v{version}",
+            "title": f"Ollama Model Runner v{version}: {first_line[:60]}",
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
@@ -435,15 +451,17 @@ async def scrape_chromadb_changelog(url: str, client: httpx.AsyncClient) -> list
         header = lines[0]
         version_match = re.search(r"(\d+\.\d+\.\d+)", header)
         version = version_match.group(1) if version_match else "Update"
-        body = " ".join([l.strip() for l in lines[1:] if l.strip() and not l.startswith("#")])
-        if not body or len(body) < 5:
-            body = f"ChromaDB release v{version} index and embedding schema changes."
-        category, urgency = classify_category_and_urgency(body)
+        body_lines = [l.strip().lstrip("-* ") for l in lines[1:] if l.strip() and not l.startswith("#")]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
         discovered_at = extract_release_date(f"{header} {body}")
+        first_line = body_lines[0] if body_lines else f"v{version}"
         items.append({
             "entry_id": f"chromadb-v{version}",
             "ecosystem": "ChromaDB & Vector",
-            "title": f"ChromaDB v{version}",
+            "title": f"ChromaDB v{version}: {first_line[:60]}",
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
@@ -492,6 +510,83 @@ async def scrape_mcp_changelog(url: str, client: httpx.AsyncClient) -> list[dict
     return items
 
 
+async def scrape_raw_markdown_changelog(
+    url: str, client: httpx.AsyncClient, default_ecosystem: str | None = None
+) -> list[dict[str, Any]]:
+    """Parse raw GitHub/online Markdown or RST changelog into authentic advisory records."""
+    response = await client.get(url)
+    if response.status_code != 200:
+        return []
+    text = response.text
+    if not text.strip():
+        return []
+
+    # Infer ecosystem name if not provided
+    ecosystem = default_ecosystem
+    if not ecosystem:
+        lower_url = url.lower()
+        if "crewai" in lower_url:
+            ecosystem = "CrewAI & Multi-Agent"
+        elif "llama_index" in lower_url or "llama-index" in lower_url:
+            ecosystem = "LlamaIndex & RAG"
+        elif "pinecone" in lower_url:
+            ecosystem = "Pinecone Vector"
+        elif "next.js" in lower_url or "vercel/next" in lower_url:
+            ecosystem = "Next.js 15 & React 19"
+        elif "pydantic" in lower_url:
+            ecosystem = "Pydantic v2"
+        else:
+            path_parts = urlparse(url).path.split("/")
+            ecosystem = path_parts[2].replace("-", " ").title() if len(path_parts) > 2 else "Custom"
+
+    items: list[dict[str, Any]] = []
+
+    # Split by level 2 release headers (## [v1.0.0])
+    sections = re.split(r"\n##\s+", text)
+    if len(sections) <= 1:
+        sections = re.split(r"\n#\s+", text)
+    if len(sections) <= 1:
+        sections = re.split(r"\n(?=[0-9]+\.[0-9]+\.[0-9]+(?:\n[=\-]+\n))", text)
+
+    for s in sections[1:30]:
+        lines = s.strip().splitlines()
+        if not lines:
+            continue
+        header = lines[0].strip("# \t*")
+        version_match = re.search(r"(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.]+)?|v\d+\.\d+\.\d+)", header)
+        version = version_match.group(1) if version_match else header[:30]
+
+        # Extract authentic body lines including subheadings
+        body_lines = [
+            l.strip().lstrip("-*# ").strip()
+            for l in lines[1:]
+            if l.strip() and not l.strip().startswith("==") and not l.strip().startswith("--")
+        ]
+        body = " ".join(body_lines)
+        if not body or len(body) < 10:
+            continue
+
+        category, urgency = classify_category_and_urgency(f"{header} {body}")
+        discovered_at = extract_release_date(f"{header} {body}")
+        code_tokens = extract_code_tokens(f"{header} {body}")
+
+        clean_slug = re.sub(r"[^a-zA-Z0-9_\-]", "-", f"{ecosystem.lower()}-{version}").strip("-")
+        first_line = body_lines[0] if body_lines else header
+        title = f"{ecosystem} {version}: {first_line[:60]}" if len(first_line) > 0 else f"{ecosystem} {version}"
+        items.append({
+            "entry_id": clean_slug[:45],
+            "ecosystem": ecosystem,
+            "title": title,
+            "category": category,
+            "urgency": urgency,
+            "plain_summary": body[:450],
+            "affected_code": code_tokens or [ecosystem.split()[0].lower()],
+            "source_url": url,
+            "discovered_at": discovered_at,
+        })
+    return items
+
+
 async def scrape_custom_html_url(url: str, client: httpx.AsyncClient) -> list[dict[str, Any]]:
     """Scrape generic HTML documentation page."""
     response = await client.get(url)
@@ -505,10 +600,12 @@ async def scrape_custom_html_url(url: str, client: httpx.AsyncClient) -> list[di
         text = tag.get_text(" ", strip=True)
         if len(text) < 25:
             continue
-        title = text[:80].split(".")[0]
+        title = text[:80].split(".")[0].strip()
         if len(title) < 3:
-            title = f"{domain} update"
-        summary = text[:350]
+            continue
+        summary = text[:350].strip()
+        if len(summary) < 10:
+            continue
         category, urgency = classify_category_and_urgency(summary)
         items.append({
             "entry_id": str(uuid.uuid5(uuid.NAMESPACE_URL, url + title)),
@@ -572,21 +669,40 @@ async def poll_results(collection_id: str, max_wait: int = 15, interval: int = 3
 
 def _normalize(raw: dict[str, Any], default_url: str, execution_engine: str) -> dict[str, Any]:
     title = str(raw.get("title") or raw.get("name") or raw.get("headline") or "").strip()
-    summary = str(raw.get("plain_summary") or raw.get("summary") or raw.get("description") or title).strip()
-    category = str(raw.get("category", "FEATURE_UPDATE")).upper().strip()
+    if not title or len(title) < 3:
+        raise ValueError("Missing or invalid 'title' (minimum 3 characters required).")
+
+    summary = str(raw.get("plain_summary") or raw.get("summary") or raw.get("description") or "").strip()
+    if not summary or len(summary) < 5:
+        raise ValueError("Missing or invalid 'plain_summary' (minimum 5 characters required).")
+
+    source_url = str(raw.get("source_url") or default_url or "").strip()
+    if not source_url or not source_url.startswith("http"):
+        raise ValueError("Missing or invalid 'source_url' (valid HTTP/HTTPS URL required).")
+
+    category = str(raw.get("category", "")).upper().strip()
     if category not in {"BREAKING_CHANGE", "DEPRECATION", "FEATURE_UPDATE", "TOOL_SCHEMA_CHANGE"}:
-        category = "FEATURE_UPDATE"
-    urgency = str(raw.get("urgency", "LOW")).upper().strip()
+        category, _ = classify_category_and_urgency(f"{title} {summary}")
+
+    urgency = str(raw.get("urgency", "")).upper().strip()
     if urgency not in {"HIGH", "MEDIUM", "LOW"}:
-        urgency = "LOW"
-    entry_id = str(raw.get("entry_id") or raw.get("id") or uuid.uuid5(uuid.NAMESPACE_URL, default_url + title))
+        _, urgency = classify_category_and_urgency(f"{title} {summary}")
+
+    entry_id = str(raw.get("entry_id") or raw.get("id") or "").strip()
+    if not entry_id:
+        entry_id = str(uuid.uuid5(uuid.NAMESPACE_URL, source_url + "#" + title))
+
     ecosystem = str(raw.get("ecosystem") or "").strip()
+    if not ecosystem:
+        domain = urlparse(source_url).netloc.replace("www.", "")
+        ecosystem = domain.split(".")[0].capitalize() if domain else "Custom"
+
     affected_code = raw.get("affected_code")
     if not isinstance(affected_code, list):
-        affected_code = extract_code_tokens(summary)
+        affected_code = extract_code_tokens(f"{title} {summary}")
     else:
         affected_code = [str(x).strip() for x in affected_code if str(x).strip()]
-    source_url = str(raw.get("source_url") or default_url).strip()
+
     raw_date = raw.get("discovered_at") or raw.get("date") or raw.get("published_at")
     if raw_date and isinstance(raw_date, datetime):
         discovered_at = raw_date
@@ -629,12 +745,24 @@ async def scrape_target_url(url: str, client: httpx.AsyncClient) -> list[dict[st
         return await scrape_fastapi_changelog(url, client)
     elif "langchain" in lower or "langgraph" in lower:
         return await scrape_langchain_changelog(url, client)
+    elif "crewai" in lower:
+        return await scrape_raw_markdown_changelog(url, client, "CrewAI & Multi-Agent")
+    elif "llama_index" in lower or "llama-index" in lower:
+        return await scrape_raw_markdown_changelog(url, client, "LlamaIndex & RAG")
+    elif "pinecone" in lower:
+        return await scrape_raw_markdown_changelog(url, client, "Pinecone Vector")
+    elif "next.js" in lower or "vercel/next" in lower:
+        return await scrape_raw_markdown_changelog(url, client, "Next.js 15 & React 19")
+    elif "pydantic" in lower:
+        return await scrape_raw_markdown_changelog(url, client, "Pydantic v2")
     elif "ollama" in lower:
         return await scrape_ollama_changelog(url, client)
     elif "chroma" in lower:
         return await scrape_chromadb_changelog(url, client)
     elif "mcp" in lower or "modelcontextprotocol" in lower:
         return await scrape_mcp_changelog(url, client)
+    elif url.endswith(".md") or url.endswith(".rst") or "raw.githubusercontent.com" in lower:
+        return await scrape_raw_markdown_changelog(url, client)
     else:
         return await scrape_custom_html_url(url, client)
 

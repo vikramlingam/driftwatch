@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     frontend_origins: str = "http://localhost:3000"
     next_public_backend_url: str = "http://localhost:8000"
+    openrouter_api_key: str = ""
+    openrouter_model: str = "anthropic/claude-3.5-sonnet"
+    github_token: str = ""
+    github_username: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 
     @property

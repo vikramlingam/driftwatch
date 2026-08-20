@@ -6,7 +6,10 @@ import sys
 from .audit import audit_project_file
 from .config import settings
 from .db import Database
-from .impact import scan_directory_for_impact
+from .github_client import GitHubClient, parse_github_repo
+from .impact import scan_directory_for_impact, scan_file_for_impacts
+from .llm_reviewer import review_code_with_llm
+from .models import DocUpdateItem, LLMReviewRequest
 from .scraper import run_closed_loop_self_healing, run_pipeline
 from .watcher import ContinuousDriftWatcher
 
@@ -131,7 +134,7 @@ async def cmd_watch(args):
     watcher.auto_approve_low_risk = not args.manual_approval
     print(f"\n[*] Starting Continuous Drift Watcher (Interval: {args.interval}s, Auto-Approve: {watcher.auto_approve_low_risk})...")
     print("[*] Press Ctrl+C to stop.")
-    watcher.start()
+    await watcher.start()
     try:
         while True:
             await asyncio.sleep(5)
@@ -141,6 +144,100 @@ async def cmd_watch(args):
     except KeyboardInterrupt:
         watcher.stop()
         print("\n[*] Continuous Drift Watcher stopped.")
+
+
+async def cmd_github_scan(args):
+    """Scan remote GitHub repository manifests and code files against DriftWatch advisories."""
+    print(f"\n[*] Inspecting GitHub repository: {args.repo} ...")
+    try:
+        owner, repo = parse_github_repo(args.repo)
+    except ValueError as e:
+        print(f"[-] Error: {e}")
+        sys.exit(1)
+
+    client = GitHubClient(token=args.token or settings.github_token)
+    try:
+        found_files, branch = await client.scan_repo_manifests_and_code(owner, repo, branch=args.branch)
+    except Exception as e:
+        print(f"[-] GitHub Scan Error: {e}")
+        sys.exit(1)
+
+    db = Database(settings.db_path)
+    advisories = [DocUpdateItem.model_validate(x) for x in db.latest(limit=200)]
+    all_matches = []
+
+    print(f"[+] Repository: {owner}/{repo} (Default Branch: {branch})")
+    print(f"[+] Files Scanned: {len(found_files)}")
+    print("-" * 75)
+
+    for file_path, content in found_files.items():
+        matches = scan_file_for_impacts(file_path, content, advisories)
+        if matches:
+            all_matches.extend(matches)
+            print(f"[!] Impact in {file_path} ({len(matches)} occurrences):")
+            for m in matches:
+                print(f"    Line {m.line_number} [{m.urgency}]: {m.symbol_matched} -> {m.advisory_title}")
+
+    print("-" * 75)
+    print(f"Total Drift Impacts Found: {len(all_matches)}")
+
+
+async def cmd_github_pr(args):
+    """Run OpenRouter LLM code review and automatically open a GitHub PR."""
+    print(f"\n[*] Initiating AI Code Review & GitHub PR for {args.repo} / {args.file} ...")
+    try:
+        owner, repo = parse_github_repo(args.repo)
+    except ValueError as e:
+        print(f"[-] Error: {e}")
+        sys.exit(1)
+
+    token = args.token or settings.github_token
+    if not token:
+        print("[-] Error: GITHUB_TOKEN is required to open a PR. Set GITHUB_TOKEN in .env or pass --token.")
+        sys.exit(1)
+
+    client = GitHubClient(token=token)
+    content, _ = await client.fetch_file_content(owner, repo, args.file, ref=args.branch)
+
+    # Prepare LLM Review Request
+    review_req = LLMReviewRequest(
+        repo_name=f"{owner}/{repo}",
+        file_path=args.file,
+        file_content=content,
+        advisory_id="cli_advisory",
+        advisory_title=args.advisory_title or "Upstream API Migration",
+        advisory_summary=args.advisory_summary or "API breaking changes require method migration.",
+        symbol_matched=args.symbol or "API",
+        model_override=args.model,
+    )
+
+    print(f"[*] Consulting OpenRouter LLM ({args.model or settings.openrouter_model})...")
+    review_resp = await review_code_with_llm(review_req)
+
+    print(f"[+] Review Mode: {review_resp.execution_mode}")
+    print(f"[+] Risk Level: {review_resp.risk_level} (Score: {review_resp.risk_score}/100)")
+    print(f"[+] Summary: {review_resp.review_summary}")
+    print("\n--- Diff Preview ---")
+    print(review_resp.unified_diff)
+    print("--------------------")
+
+    if args.dry_run:
+        print("[*] Dry run enabled. Skipping branch creation and PR opening.")
+        return
+
+    print(f"[*] Creating branch and opening Pull Request on {owner}/{repo}...")
+    pr_res = await client.create_pull_request(
+        owner=owner,
+        repo=repo,
+        file_path=args.file,
+        patched_code=review_resp.patched_code,
+        pr_title=review_resp.suggested_pr_title,
+        pr_body=review_resp.suggested_pr_body,
+        base_branch=args.branch or "main",
+    )
+    print(f"\n[+] SUCCESS! Pull Request Opened:")
+    print(f"    URL: {pr_res['pr_url']}")
+    print(f"    Branch: {pr_res['branch_created']}")
 
 
 def main():
@@ -174,6 +271,24 @@ def main():
     p_audit = subparsers.add_parser("audit", help="Audit local requirements.txt, package.json, or mcp_config.json")
     p_audit.add_argument("file", help="Path to manifest file")
 
+    # github-scan command (Innovation: Remote GitHub Inspection)
+    p_gh_scan = subparsers.add_parser("github-scan", help="Scan remote GitHub repository for upstream drift")
+    p_gh_scan.add_argument("--repo", required=True, help="GitHub repository (e.g. owner/repo or URL)")
+    p_gh_scan.add_argument("--branch", default=None, help="Branch name (default: default branch)")
+    p_gh_scan.add_argument("--token", default=None, help="GitHub Personal Access Token")
+
+    # pr command (Innovation: AI Code Review & Autonomous PR)
+    p_pr = subparsers.add_parser("pr", help="Run AI code review & raise PR on GitHub")
+    p_pr.add_argument("--repo", required=True, help="GitHub repository (e.g. owner/repo or URL)")
+    p_pr.add_argument("--file", required=True, help="Target file path in repository")
+    p_pr.add_argument("--symbol", default="stripe", help="Impacted symbol/API keyword")
+    p_pr.add_argument("--advisory-title", default="API Migration", help="Advisory title")
+    p_pr.add_argument("--advisory-summary", default="Upstream API changes require refactoring.", help="Advisory summary")
+    p_pr.add_argument("--model", default=None, help="OpenRouter model name")
+    p_pr.add_argument("--branch", default="main", help="Base branch")
+    p_pr.add_argument("--token", default=None, help="GitHub Personal Access Token")
+    p_pr.add_argument("--dry-run", action="store_true", help="Generate review and diff without opening PR")
+
     args = parser.parse_args()
     print_banner()
 
@@ -187,7 +302,12 @@ def main():
         asyncio.run(cmd_watch(args))
     elif args.command == "audit":
         cmd_audit(args)
+    elif args.command == "github-scan":
+        asyncio.run(cmd_github_scan(args))
+    elif args.command == "pr":
+        asyncio.run(cmd_github_pr(args))
 
 
 if __name__ == "__main__":
     main()
+
