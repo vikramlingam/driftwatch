@@ -46,11 +46,19 @@ cleanup() {
     if [ -n "$FRONTEND_PID" ]; then
         kill "$FRONTEND_PID" 2>/dev/null || true
     fi
+    # Ensure ports are freed
+    lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+    lsof -ti:3000 | xargs kill -9 2>/dev/null || true
     echo -e "${GREEN}[✓] All services stopped cleanly.${NC}"
     exit 0
 }
 
 trap cleanup SIGINT SIGTERM EXIT
+
+# Pre-clean ports if previously occupied
+lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+
 
 # 5. Start Backend Server
 echo -e "${BLUE}[*] Starting FastAPI Backend on http://localhost:8000...${NC}"
