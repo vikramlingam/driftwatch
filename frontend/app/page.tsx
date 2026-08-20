@@ -57,6 +57,9 @@ export default function Home() {
   const [isAddTargetOpen, setIsAddTargetOpen] = useState(false);
   const [customTargetUrl, setCustomTargetUrl] = useState('');
 
+  // Info & Help Guide Modal
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+
   // 4-Stage Self Healing Modal & Proof-of-Recovery Evidence
   const [isFixModalOpen, setIsFixModalOpen] = useState(false);
   const [fixCollectorId, setFixCollectorId] = useState('');
@@ -440,7 +443,7 @@ export default function Home() {
     }
   }
 
-  async function handleCreateGitHubPR() {
+  async function handleCreateGitHubPR(fallbackAck: boolean = false) {
     if (!ghScanResult || !selectedGhMatch || !llmReviewResult) return;
     setPrLoading(true);
     setPrResult(null);
@@ -456,6 +459,9 @@ export default function Home() {
           pr_body: prCustomBody || llmReviewResult.suggested_pr_body,
           base_branch: ghScanResult.default_branch || 'main',
           github_token_override: ghTokenOverride.trim() || null,
+          execution_mode: llmReviewResult.execution_mode,
+          fallback_acknowledged: fallbackAck,
+          patch_id: llmReviewResult.patch_id,
         }),
       });
       const data = await res.json();
@@ -523,11 +529,12 @@ export default function Home() {
         loading={loading}
         handleScrape={handleScrape}
         handleClearDatabase={handleClearDatabase}
+        onOpenInfo={() => setIsInfoOpen(true)}
       />
 
       {/* Main Studio Body */}
-      <main className="mx-auto max-w-[1650px] px-4 sm:px-6 lg:px-8 py-5">
-        <div className="flex flex-col lg:flex-row gap-5 items-start">
+      <main className="mx-auto w-full max-w-[1920px] px-2.5 sm:px-4 lg:px-5 py-3.5">
+        <div className="flex flex-col lg:flex-row gap-3.5 items-start">
           {/* Left Navigation Sidebar */}
           <LeftSidebar
             theme={theme}
@@ -551,14 +558,14 @@ export default function Home() {
                   theme === 'dark' ? 'text-white' : 'text-slate-900'
                 }`}
               >
-                Developer Breaking Changes & API Drift Intelligence
+                Catch breaking API changes before they break your code
               </h1>
               <p
                 className={`text-xs sm:text-sm font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
                   theme === 'dark' ? 'text-[#94a3b8]' : 'text-slate-600'
                 }`}
               >
-                Autonomous self-healing crawlers monitor SDK changelogs, API documentation, and MCP schemas in real-time.
+                Track documentation updates, scan your repositories for broken code, and ship automated fixes.
               </p>
             </div>
 
@@ -711,6 +718,8 @@ export default function Home() {
         isQuarantineOpen={isQuarantineOpen}
         setIsQuarantineOpen={setIsQuarantineOpen}
         failedErrors={failedErrors}
+        isInfoOpen={isInfoOpen}
+        setIsInfoOpen={setIsInfoOpen}
       />
     </div>
   );

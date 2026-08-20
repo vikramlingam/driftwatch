@@ -1,6 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+
+def verify_local_access(request: Request):
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    if client_ip not in ("127.0.0.1", "::1", "localhost", "testclient"):
+        raise HTTPException(status_code=403, detail="Mutation endpoints are restricted to localhost.")
 from fastapi.responses import PlainTextResponse
 from .audit import audit_project_file, create_code_fix
 from .config import settings
@@ -29,11 +34,22 @@ from .models import (
 from .scraper import fix_scraper_with_ai, run_closed_loop_self_healing, run_pipeline
 from .watcher import watcher_instance
 
+AUTHORIZED_PATCHES: dict[str, dict[str, str]] = {}
+
 db = Database(settings.db_path)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Load persisted custom target URLs
+    try:
+        custom_targets = db.get_custom_targets()
+        for url in custom_targets:
+            settings.add_target_url(url)
+            watcher_instance.add_target(url)
+    except Exception:
+        pass
+
     # Warm up database if empty on fresh install/restart
     if db.count() == 0:
         try:
@@ -94,13 +110,13 @@ async def scrape(request: ScrapeRequest):
     )
 
 
-@app.post("/api/targets/add")
+@app.post("/api/targets/add", dependencies=[Depends(verify_local_access)])
 async def add_target_feed(payload: dict):
     url = payload.get("url", "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="Missing required 'url' parameter.")
-    if url not in settings.target_urls:
-        settings.target_urls.append(url)
+    settings.add_target_url(url)
+    db.add_custom_target(url, ecosystem="Custom")
     watcher_instance.add_target(url)
     scrape_res = await run_pipeline([url])
     return {
@@ -111,7 +127,7 @@ async def add_target_feed(payload: dict):
     }
 
 
-@app.post("/api/self-heal-loop", response_model=SelfHealingLoopResponse)
+@app.post("/api/self-heal-loop", response_model=SelfHealingLoopResponse, dependencies=[Depends(verify_local_access)])
 async def self_heal_loop(request: SelfHealingLoopRequest):
     return await run_closed_loop_self_healing(
         collector_id=request.collector_id,
@@ -169,13 +185,13 @@ def watcher_status():
     return watcher_instance.status()
 
 
-@app.post("/api/watcher/start", response_model=WatcherStatusResponse)
+@app.post("/api/watcher/start", response_model=WatcherStatusResponse, dependencies=[Depends(verify_local_access)])
 async def watcher_start(config: WatcherConfigRequest):
     await watcher_instance.start(config)
     return watcher_instance.status()
 
 
-@app.post("/api/watcher/stop", response_model=WatcherStatusResponse)
+@app.post("/api/watcher/stop", response_model=WatcherStatusResponse, dependencies=[Depends(verify_local_access)])
 def watcher_stop():
     watcher_instance.stop()
     return watcher_instance.status()
@@ -186,7 +202,7 @@ def watcher_pending_repairs():
     return watcher_instance.pending_repairs
 
 
-@app.post("/api/watcher/approve-repair/{repair_id}")
+@app.post("/api/watcher/approve-repair/{repair_id}", dependencies=[Depends(verify_local_access)])
 async def watcher_approve_repair(repair_id: str):
     approved = await watcher_instance.approve_repair(repair_id)
     if not approved:
@@ -194,7 +210,7 @@ async def watcher_approve_repair(repair_id: str):
     return approved
 
 
-@app.post("/api/watcher/reject-repair/{repair_id}")
+@app.post("/api/watcher/reject-repair/{repair_id}", dependencies=[Depends(verify_local_access)])
 def watcher_reject_repair(repair_id: str):
     rejected = watcher_instance.reject_repair(repair_id)
     if not rejected:
@@ -286,15 +302,36 @@ async def github_review(request: LLMReviewRequest):
             pass  # Fall back to provided content
 
     updated_req = request.model_copy(update={"file_content": file_content})
-    return await review_code_with_llm(updated_req)
+    res = await review_code_with_llm(updated_req)
+    import uuid
+    patch_id = f"patch_{uuid.uuid4().hex[:12]}"
+    res.patch_id = patch_id
+    AUTHORIZED_PATCHES[patch_id] = {
+        "file_path": request.file_path,
+        "patched_code": res.patched_code,
+    }
+    return res
 
 
-@app.post("/api/github/create-pr", response_model=CreatePRResponse)
+@app.post("/api/github/create-pr", response_model=CreatePRResponse, dependencies=[Depends(verify_local_access)])
 async def github_create_pr(request: CreatePRRequest):
     try:
         owner, repo = parse_github_repo(request.repo_name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    if request.execution_mode == "rule_based_fallback" and not request.fallback_acknowledged:
+        raise HTTPException(
+            status_code=403, 
+            detail="Fallback acknowledgment is required to merge heuristic rule-based patches."
+        )
+
+    if not request.patch_id or request.patch_id not in AUTHORIZED_PATCHES:
+        raise HTTPException(status_code=403, detail="Invalid or expired patch ID. Patches must be generated by the review endpoint.")
+        
+    auth_patch = AUTHORIZED_PATCHES[request.patch_id]
+    if request.file_path != auth_patch["file_path"] or request.patched_code != auth_patch["patched_code"]:
+        raise HTTPException(status_code=403, detail="Patch content or file path mismatch. Cannot submit arbitrary code.")
 
     token = request.github_token_override or settings.github_token
     if not token:

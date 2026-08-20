@@ -51,7 +51,7 @@ export const LeftSidebar: React.FC<LeftSidebarProps> = ({
   ];
 
   return (
-    <aside className="w-full lg:w-[245px] shrink-0 lg:sticky lg:top-[68px] lg:max-h-[calc(100vh-80px)] lg:overflow-y-auto space-y-4">
+    <aside className="w-full lg:w-[255px] shrink-0 lg:sticky lg:top-[60px] lg:max-h-[calc(100vh-70px)] lg:overflow-y-auto space-y-3.5">
       {/* 4 Metric Stats Cards in 2x2 Bento Box Grid */}
       <div className="grid grid-cols-2 gap-2.5">
         <div

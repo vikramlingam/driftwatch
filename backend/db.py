@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS doc_updates (
     source_url TEXT NOT NULL,
     discovered_at TIMESTAMP NOT NULL,
     execution_engine TEXT NOT NULL,
-    scraped_at TIMESTAMP NOT NULL
+    scraped_at TIMESTAMP NOT NULL,
+    batch_id TEXT
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS doc_updates_fts USING fts5(
@@ -98,8 +99,8 @@ class Database:
                     """INSERT INTO doc_updates (
                         entry_id, ecosystem, title, category, urgency,
                         plain_summary, affected_code, source_url, discovered_at,
-                        execution_engine, scraped_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        execution_engine, scraped_at, batch_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(entry_id) DO UPDATE SET
                         ecosystem=excluded.ecosystem,
                         title=excluded.title,
@@ -110,7 +111,8 @@ class Database:
                         source_url=excluded.source_url,
                         discovered_at=excluded.discovered_at,
                         execution_engine=excluded.execution_engine,
-                        scraped_at=excluded.scraped_at""",
+                        scraped_at=excluded.scraped_at,
+                        batch_id=excluded.batch_id""",
                     (
                         item.entry_id,
                         item.ecosystem,
@@ -123,6 +125,7 @@ class Database:
                         item.discovered_at.isoformat(),
                         item.execution_engine,
                         item.scraped_at.isoformat(),
+                        item.batch_id,
                     ),
                 )
             return len(items)
@@ -135,17 +138,25 @@ class Database:
             result["affected_code"] = []
         return result
 
-    def latest(self, ecosystem: str | None = None, limit: int = 100) -> list[dict]:
+    def latest(self, ecosystem: str | None = None, source_url: str | None = None, execution_engine: str | None = None, batch_id: str | None = None, limit: int = 100) -> list[dict]:
         with self.connection() as conn:
-            query = "SELECT * FROM doc_updates"
+            query = "SELECT * FROM doc_updates WHERE 1=1"
             args: list[object] = []
             if ecosystem and ecosystem.lower() != "all":
-                query += " WHERE LOWER(ecosystem) = LOWER(?)"
+                query += " AND LOWER(ecosystem) = LOWER(?)"
                 args.append(ecosystem)
+            if source_url:
+                query += " AND source_url = ?"
+                args.append(source_url)
+            if execution_engine:
+                query += " AND execution_engine = ?"
+                args.append(execution_engine)
+            if batch_id:
+                query += " AND batch_id = ?"
+                args.append(batch_id)
             query += " ORDER BY discovered_at DESC LIMIT ?"
             args.append(limit)
-            rows = conn.execute(query, args).fetchall()
-            return [self._row(r) for r in rows]
+            return [self._row(r) for r in conn.execute(query, args).fetchall()]
 
     def search(self, query: str, ecosystem: str | None = None, limit: int = 50) -> list[dict]:
         clean_terms = re.findall(r"[A-Za-z0-9_]+", query)

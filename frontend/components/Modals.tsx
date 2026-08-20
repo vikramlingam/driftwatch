@@ -10,6 +10,13 @@ import {
   ShieldCheck,
   CheckCircle2,
   ShieldAlert,
+  Info,
+  BookOpen,
+  Layers,
+  GitPullRequest,
+  Search,
+  FileText,
+  FolderOpen,
 } from 'lucide-react';
 import { DocUpdate, SelfHealingResponse } from '../types';
 
@@ -44,6 +51,9 @@ interface ModalsProps {
   isQuarantineOpen: boolean;
   setIsQuarantineOpen: (open: boolean) => void;
   failedErrors: string[];
+  // Info & Help Guide Modal
+  isInfoOpen: boolean;
+  setIsInfoOpen: (open: boolean) => void;
 }
 
 export const Modals: React.FC<ModalsProps> = ({
@@ -73,6 +83,8 @@ export const Modals: React.FC<ModalsProps> = ({
   isQuarantineOpen,
   setIsQuarantineOpen,
   failedErrors,
+  isInfoOpen,
+  setIsInfoOpen,
 }) => {
   return (
     <>
@@ -242,7 +254,7 @@ export const Modals: React.FC<ModalsProps> = ({
               </div>
 
               <p className="text-[11px] text-[#64748b]">
-                DriftWatch will fetch, extract breaking changes, build FTS5 indices, and immediately trigger local code impact checks.
+                Drift Watch will fetch, extract breaking changes, build FTS5 indices, and immediately trigger local code impact checks.
               </p>
 
               <div className="mt-5 flex justify-end gap-2">
@@ -587,6 +599,135 @@ export const Modals: React.FC<ModalsProps> = ({
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 5: Project Guide & Information Modal */}
+      {isInfoOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in">
+          <div
+            className={`w-full max-w-3xl max-h-[88vh] flex flex-col rounded-xl border shadow-2xl overflow-hidden ${
+              theme === 'dark'
+                ? 'border-[#232a3d] bg-[#0e1118] text-slate-100'
+                : 'border-slate-200 bg-white text-slate-900'
+            }`}
+          >
+            {/* Clean Document Header */}
+            <div
+              className={`flex items-center justify-between border-b px-7 py-4.5 ${
+                theme === 'dark' ? 'border-[#1e2433]' : 'border-slate-200'
+              }`}
+            >
+              <div>
+                <h2 className="text-lg font-bold">About Drift Watch</h2>
+                <p className={`text-sm mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Project overview and feature guide by Team Siloed
+                </p>
+              </div>
+              <button
+                onClick={() => setIsInfoOpen(false)}
+                className={`rounded-lg p-1.5 transition ${
+                  theme === 'dark'
+                    ? 'text-slate-400 hover:bg-[#1e2433] hover:text-white'
+                    : 'text-slate-400 hover:bg-slate-100 hover:text-slate-800'
+                }`}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Clean Reading Body */}
+            <div className="p-7 space-y-6 overflow-y-auto text-base leading-relaxed">
+              {/* Introduction */}
+              <section className="space-y-2.5">
+                <h3 className="font-bold text-lg">What is this project?</h3>
+                <p className={theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}>
+                  Drift Watch monitors developer documentation, changelogs, and release notes for major APIs and SDKs (including Stripe, OpenAI, Anthropic, AWS, Supabase, FastAPI, and MCP).
+                </p>
+                <p className={theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}>
+                  When third-party libraries change parameters, deprecate functions, or publish breaking releases, Drift Watch detects the changes, shows you which parts of your codebase are affected, and helps you apply fixes before your code breaks in production.
+                </p>
+              </section>
+
+              <hr className={theme === 'dark' ? 'border-[#1e2433]' : 'border-slate-200'} />
+
+              {/* How to use the features */}
+              <section className="space-y-4">
+                <h3 className="font-bold text-lg">Features &amp; How to Use Them</h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-semibold text-base">1. Live Radar &amp; Search</h4>
+                    <p className={`text-sm mt-1 leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+                      Browse breaking changes and deprecations in real time. Use the search bar to look up specific function names or package keywords, filter by ecosystem, and click any entry to see full details and code snippets.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-base">2. Project Audit</h4>
+                    <p className={`text-sm mt-1 leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+                      Upload or paste your manifest file (package.json, requirements.txt, or mcp_config.json) to see if any installed package versions have known breaking changes. Click &quot;View Ready Fix&quot; on any match to see migration code.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-base">3. Codebase Impact</h4>
+                    <p className={`text-sm mt-1 leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+                      Scan a local directory to find the exact file paths and line numbers that use deprecated functions or changed API parameters.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-base">4. Self-Healing Scrapers</h4>
+                    <p className={`text-sm mt-1 leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+                      When documentation websites change layout, Drift Watch detects selector drift, updates the scraper parser, and tests the fix through Bright Data to ensure uninterrupted updates.
+                    </p>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-base">5. GitHub Scanner &amp; Pull Requests</h4>
+                    <p className={`text-sm mt-1 leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+                      Enter a public GitHub repository (e.g. owner/repo) to scan repository files for breaking changes and publish automated fix Pull Requests directly to GitHub.
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <hr className={theme === 'dark' ? 'border-[#1e2433]' : 'border-slate-200'} />
+
+              {/* Top Bar Actions */}
+              <section className="space-y-3">
+                <h3 className="font-bold text-lg">Top Bar Buttons</h3>
+                <ul className={`list-disc list-inside space-y-2 text-sm leading-relaxed ${theme === 'dark' ? 'text-slate-300' : 'text-slate-600'}`}>
+                  <li><strong>Info:</strong> Opens this reading guide.</li>
+                  <li><strong>Light / Dark:</strong> Switches the color theme between night and day modes.</li>
+                  <li><strong>Scan All Docs:</strong> Triggers a fresh scan across all documentation feeds.</li>
+                  <li><strong>Clear DB:</strong> Clears the local database cache to start fresh.</li>
+                </ul>
+              </section>
+            </div>
+
+            {/* Clean Footer */}
+            <div
+              className={`flex items-center justify-between border-t px-7 py-4 ${
+                theme === 'dark' ? 'border-[#1e2433] bg-[#090b0e]' : 'border-slate-200 bg-slate-50'
+              }`}
+            >
+              <span className={`text-sm ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                Bright Data Hackathon &bull; Team Siloed
+              </span>
+              <button
+                onClick={() => setIsInfoOpen(false)}
+                className={`rounded-lg px-5 py-2 text-sm font-semibold transition ${
+                  theme === 'dark'
+                    ? 'bg-slate-800 text-white hover:bg-slate-700'
+                    : 'bg-slate-900 text-white hover:bg-slate-800'
+                }`}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

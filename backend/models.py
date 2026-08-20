@@ -20,6 +20,7 @@ class DocUpdateItem(StrictModel):
     discovered_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     execution_engine: str
     scraped_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    batch_id: str | None = None
 
 
 class ScrapeRequest(StrictModel):
@@ -165,12 +166,7 @@ class CodebaseImpactReport(StrictModel):
 class WatcherConfigRequest(StrictModel):
     interval_seconds: int = 120
     auto_approve_low_risk: bool = True
-    target_urls: list[str] = Field(
-        default_factory=lambda: [
-            "https://docs.stripe.com/changelog",
-            "https://raw.githubusercontent.com/modelcontextprotocol/specification/main/README.md",
-        ]
-    )
+    target_urls: list[str] | None = None
 
 
 class WatcherStatusResponse(StrictModel):
@@ -227,6 +223,7 @@ class LLMReviewResponse(StrictModel):
     suggested_pr_body: str
     model_used: str
     execution_mode: Literal["openrouter_llm", "rule_based_fallback"]
+    patch_id: str | None = None
 
 
 class CreatePRRequest(StrictModel):
@@ -238,6 +235,9 @@ class CreatePRRequest(StrictModel):
     base_branch: str = "main"
     branch_name: str | None = None
     github_token_override: str | None = None
+    execution_mode: Literal["openrouter_llm", "rule_based_fallback"] = "openrouter_llm"
+    fallback_acknowledged: bool = False
+    patch_id: str | None = None
 
 
 class CreatePRResponse(StrictModel):

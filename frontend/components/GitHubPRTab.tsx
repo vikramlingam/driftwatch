@@ -54,7 +54,7 @@ interface GitHubPRTabProps {
   setPrCustomTitle: (title: string) => void;
   prCustomBody: string;
   setPrCustomBody: (body: string) => void;
-  handleCreateGitHubPR: () => Promise<void>;
+  handleCreateGitHubPR: (fallbackAck: boolean) => Promise<void>;
   prLoading: boolean;
   prResult: CreatePRResponse | null;
 }
@@ -242,7 +242,7 @@ export const GitHubPRTab: React.FC<GitHubPRTabProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] uppercase font-bold text-[#64748b]">Try Presets:</span>
               {[
-                { name: 'DriftWatch (Self)', url: 'vikramlingam/driftwatch', branch: 'main' },
+                { name: 'Drift Watch (Self)', url: 'vikramlingam/driftwatch', branch: 'main' },
                 { name: 'LangChain AI', url: 'langchain-ai/langchain', branch: 'master' },
                 { name: 'OpenAI Python', url: 'openai/openai-python', branch: 'main' },
                 { name: 'ModelContextProtocol', url: 'modelcontextprotocol/servers', branch: 'main' },
@@ -772,11 +772,11 @@ export const GitHubPRTab: React.FC<GitHubPRTabProps> = ({
 
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
                   <span className="text-[11px] text-[#64748b]">
-                    Branches and commits will be authored and published via DriftWatch GitHub Bot.
+                    Branches and commits will be authored and published via Drift Watch GitHub Bot.
                   </span>
 
                   <button
-                    onClick={handleCreateGitHubPR}
+                    onClick={() => handleCreateGitHubPR(fallbackAck)}
                     disabled={prLoading || (llmReviewResult.execution_mode === 'rule_based_fallback' && !fallbackAck)}
                     className="flex items-center justify-center gap-2 rounded-md bg-emerald-600 px-6 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50 shadow-md shadow-emerald-950/20"
                   >

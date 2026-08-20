@@ -1,6 +1,7 @@
 """Environment-backed configuration for DriftWatch."""
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -22,10 +23,17 @@ class Settings(BaseSettings):
     github_username: str = ""
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 
+    custom_target_urls: list[str] = Field(default_factory=list)
+
     @property
     def target_urls(self) -> list[str]:
         value = self.target_url or self.default_target_urls
-        return [u.strip() for u in value.strip("[]").split(",") if u.strip()]
+        base_urls = [u.strip() for u in value.strip("[]").split(",") if u.strip()]
+        return list(set(base_urls + self.custom_target_urls))
+
+    def add_target_url(self, url: str) -> None:
+        if url not in self.custom_target_urls:
+            self.custom_target_urls.append(url)
 
     @property
     def db_path(self) -> Path:

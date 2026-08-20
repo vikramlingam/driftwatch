@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sun, Moon, RefreshCw, Trash2 } from 'lucide-react';
+import { Sun, Moon, RefreshCw, Trash2, Info } from 'lucide-react';
 import { SystemHealth } from '../types';
 
 interface NavbarProps {
@@ -9,6 +9,7 @@ interface NavbarProps {
   loading: boolean;
   handleScrape: (overrideUrls?: string[]) => Promise<void>;
   handleClearDatabase: () => Promise<void>;
+  onOpenInfo: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -18,6 +19,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   loading,
   handleScrape,
   handleClearDatabase,
+  onOpenInfo,
 }) => {
   return (
     <nav
@@ -27,7 +29,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           : 'border-[#e2e8f0] bg-white/90 shadow-sm'
       }`}
     >
-      <div className="mx-auto flex max-w-[1650px] items-center justify-between px-4 sm:px-6 lg:px-8 py-3">
+      <div className="mx-auto flex w-full max-w-[1920px] items-center justify-between px-3 sm:px-5 lg:px-6 py-2.5">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <span
@@ -35,16 +37,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 theme === 'dark' ? 'text-white' : 'text-slate-900'
               }`}
             >
-              DriftWatch
+              Drift Watch
             </span>
             <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wide ${
                 theme === 'dark'
                   ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                  : 'bg-slate-100 text-slate-700 border border-slate-300'
+                  : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
               }`}
             >
-              Studio
+              by Team Siloed
             </span>
           </div>
           <span className={theme === 'dark' ? 'text-[#3b445c]' : 'text-slate-300'}>|</span>
@@ -53,7 +55,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               theme === 'dark' ? 'text-[#94a3b8]' : 'text-slate-500'
             }`}
           >
-            Developer Intelligence Radar & Self-Healing Scraper Studio
+            Breaking Changes & API Drift Intelligence Radar
           </span>
         </div>
 
@@ -68,6 +70,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="h-2 w-2 rounded-full bg-[#10b981] animate-pulse"></span>
             <span>{systemHealth.records} Advisories Active</span>
           </div>
+
+          {/* Info & Help Guide Modal Button */}
+          <button
+            onClick={onOpenInfo}
+            title="How to use Drift Watch (Project Guide)"
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+              theme === 'dark'
+                ? 'border-indigo-500/30 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20'
+                : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+            }`}
+          >
+            <Info size={14} />
+            <span className="font-bold">Info</span>
+          </button>
 
           {/* Light / Dark Mode Toggle Button */}
           <button

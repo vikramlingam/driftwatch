@@ -20,7 +20,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   setIsAddTargetOpen,
 }) => {
   return (
-    <aside className="hidden xl:block w-[260px] shrink-0 sticky top-[68px] max-h-[calc(100vh-80px)] overflow-y-auto space-y-4">
+    <aside className="hidden xl:block w-[270px] shrink-0 sticky top-[60px] max-h-[calc(100vh-70px)] overflow-y-auto space-y-3.5">
       <div
         className={`rounded-xl border p-4 space-y-3 transition ${
           theme === 'dark' ? 'bg-[#11141c] border-[#1e2433]' : 'bg-white border-slate-200 shadow-sm'

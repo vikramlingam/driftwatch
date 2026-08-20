@@ -10,7 +10,7 @@ from .scraper import run_closed_loop_self_healing, run_pipeline
 
 def assess_anomaly_risk(res) -> str:
     """Assess whether a scraper anomaly is LOW_RISK, HIGH_RISK, or a transient NETWORK_ERROR."""
-    errors = getattr(res, "errors", None)
+    errors = getattr(res, "errors", None) or getattr(res, "quarantined_errors", None)
     if errors:
         error_str = " ".join(errors).lower()
         if any(net in error_str for net in ["timeout", "connecterror", "connection reset", "connection refused", "httperror", "status 4", "status 5", "502", "503", "504"]):
@@ -19,8 +19,8 @@ def assess_anomaly_risk(res) -> str:
     if getattr(res, "quarantined_items_count", 0) > 0:
         # Schema violation / corrupted payload is high risk
         return "HIGH_RISK"
-    if getattr(res, "valid_items_saved", 0) == 0:
-        # Empty results / DOM selector miss on accessible page is low risk adaptive shift
+    if getattr(res, "total_items_found", getattr(res, "valid_items_saved", -1)) == 0:
+        # Zero items found from the parser means DOM selector drift, triggering low-risk auto-healing
         return "LOW_RISK"
     return "NONE"
 

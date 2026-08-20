@@ -146,7 +146,7 @@ async def scrape_stripe_changelog(url: str, client: httpx.AsyncClient) -> list[d
             "category": category,
             "urgency": urgency,
             "plain_summary": summary[:400],
-            "affected_code": extract_code_tokens(summary) or ["stripe"],
+            "affected_code": extract_code_tokens(summary),
             "source_url": url,
             "discovered_at": discovered_at,
         })
@@ -182,7 +182,7 @@ async def scrape_openai_changelog(url: str, client: httpx.AsyncClient) -> list[d
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
-            "affected_code": extract_code_tokens(body) or ["openai"],
+            "affected_code": extract_code_tokens(body),
             "source_url": f"https://github.com/openai/openai-python/releases/tag/v{version}" if version_match else "https://platform.openai.com/docs/changelog",
             "discovered_at": discovered_at,
         })
@@ -218,7 +218,7 @@ async def scrape_anthropic_changelog(url: str, client: httpx.AsyncClient) -> lis
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
-            "affected_code": extract_code_tokens(body) or ["anthropic"],
+            "affected_code": extract_code_tokens(body),
             "source_url": f"https://github.com/anthropics/anthropic-sdk-python/releases/tag/v{version}",
             "discovered_at": discovered_at,
         })
@@ -249,7 +249,7 @@ async def scrape_aws_changelog(url: str, client: httpx.AsyncClient) -> list[dict
             "category": category,
             "urgency": urgency,
             "plain_summary": body_clean[:400],
-            "affected_code": extract_code_tokens(body_clean) or ["boto3", "botocore"],
+            "affected_code": extract_code_tokens(body_clean),
             "source_url": "https://aws.amazon.com/releasenotes/",
             "discovered_at": discovered_at,
         })
@@ -285,7 +285,7 @@ async def scrape_gcp_changelog(url: str, client: httpx.AsyncClient) -> list[dict
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
-            "affected_code": extract_code_tokens(body) or ["google.genai", "google.cloud", "gemini"],
+            "affected_code": extract_code_tokens(body),
             "source_url": f"https://github.com/googleapis/python-genai/releases/tag/v{version}",
             "discovered_at": discovered_at,
         })
@@ -321,7 +321,7 @@ async def scrape_supabase_changelog(url: str, client: httpx.AsyncClient) -> list
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
-            "affected_code": extract_code_tokens(body) or ["supabase", "createClient", "auth"],
+            "affected_code": extract_code_tokens(body),
             "source_url": f"https://github.com/supabase/supabase-js/releases/tag/v{version}",
             "discovered_at": discovered_at,
         })
@@ -357,7 +357,7 @@ async def scrape_fastapi_changelog(url: str, client: httpx.AsyncClient) -> list[
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
-            "affected_code": extract_code_tokens(body) or ["fastapi", "pydantic", "starlette"],
+            "affected_code": extract_code_tokens(body),
             "source_url": "https://fastapi.tiangolo.com/release-notes/",
             "discovered_at": discovered_at,
         })
@@ -393,7 +393,7 @@ async def scrape_langchain_changelog(url: str, client: httpx.AsyncClient) -> lis
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
-            "affected_code": extract_code_tokens(body) or ["langchain_core", "Runnable", "tools", "invoke"],
+            "affected_code": extract_code_tokens(body),
             "source_url": f"https://github.com/langchain-ai/langchain/releases/tag/langchain-core%3D%3D{version}",
             "discovered_at": discovered_at,
         })
@@ -429,7 +429,7 @@ async def scrape_ollama_changelog(url: str, client: httpx.AsyncClient) -> list[d
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
-            "affected_code": extract_code_tokens(body) or ["ollama", "tools", "chat", "format"],
+            "affected_code": extract_code_tokens(body),
             "source_url": f"https://github.com/ollama/ollama/releases/tag/v{version}",
             "discovered_at": discovered_at,
         })
@@ -465,7 +465,7 @@ async def scrape_chromadb_changelog(url: str, client: httpx.AsyncClient) -> list
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:400],
-            "affected_code": extract_code_tokens(body) or ["chromadb", "get_collection", "embeddings"],
+            "affected_code": extract_code_tokens(body),
             "source_url": f"https://github.com/chroma-core/chroma/releases/tag/{version}",
             "discovered_at": discovered_at,
         })
@@ -503,7 +503,7 @@ async def scrape_mcp_changelog(url: str, client: httpx.AsyncClient) -> list[dict
             "category": category,
             "urgency": urgency,
             "plain_summary": summary[:400],
-            "affected_code": extract_code_tokens(summary) or ["mcp", "protocol"],
+            "affected_code": extract_code_tokens(summary),
             "source_url": c.get("html_url", "https://github.com/modelcontextprotocol/specification"),
             "discovered_at": discovered_at,
         })
@@ -580,7 +580,7 @@ async def scrape_raw_markdown_changelog(
             "category": category,
             "urgency": urgency,
             "plain_summary": body[:450],
-            "affected_code": code_tokens or [ecosystem.split()[0].lower()],
+            "affected_code": code_tokens,
             "source_url": url,
             "discovered_at": discovered_at,
         })
@@ -814,6 +814,7 @@ async def run_pipeline(
 
     # 3. Strict Pydantic contract validation & Quarantine isolation
     valid: list[DocUpdateItem] = []
+    batch_id = f"batch_{uuid.uuid4().hex[:12]}"
     for raw in raw_items:
         if not isinstance(raw, dict):
             errors.append("Item set aside: not a valid dictionary record.")
@@ -821,6 +822,7 @@ async def run_pipeline(
         try:
             normalized = _normalize(raw, urls[0] if urls else "https://docs.stripe.com/changelog", execution_engine)
             item = DocUpdateItem.model_validate(normalized)
+            item.batch_id = batch_id
             valid.append(item)
         except ValidationError as exc:
             first = exc.errors()[0]
@@ -834,7 +836,7 @@ async def run_pipeline(
     telemetry_logs.append(f"Persisted {saved} verified records to SQLite with FTS5 search. {len(errors)} items quarantined.")
 
     return ScrapePipelineResult(
-        batch_id=f"batch_{uuid.uuid4().hex[:12]}",
+        batch_id=batch_id,
         urls_checked=urls,
         total_items_found=len(raw_items),
         valid_items_saved=saved,
@@ -1073,7 +1075,10 @@ async def run_closed_loop_self_healing(
         report_id = f"evidence_{uuid.uuid4().hex[:12]}"
         
         # Dynamically determine validated schema fields present in the verified dataset
-        recent_records = Database(settings.db_path).latest(limit=post_heal_res.valid_items_saved)
+        recent_records = Database(settings.db_path).latest(
+            batch_id=post_heal_res.batch_id,
+            limit=post_heal_res.valid_items_saved
+        )
         if recent_records:
             recovered_fields = sorted(list(set(k for item in recent_records for k, v in item.items() if v is not None)))
         else:
