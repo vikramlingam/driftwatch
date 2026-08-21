@@ -1001,27 +1001,30 @@ async def run_pipeline(
                     print(f"[BD pipeline] After unpacking: {len(raw_items)} raw_items total")
                     if raw_items:
                         execution_engine = "bright_data_dca"
-                        telemetry_logs.append(f"Bright Data DCA returned {len(raw_items)} raw structured records.")
+                        feeds_hit = set(r.get("source_url", "") for r in raw_items if r.get("source_url"))
+                        telemetry_logs.append(f"Bright Data DCA returned {len(raw_items)} raw structured records across {len(feeds_hit)}/{len(urls)} feeds.")
+                        uncovered = [u for u in urls if not any(u.lower() in str(r.get("source_url", "")).lower() for r in raw_items)]
+                        if uncovered:
+                            telemetry_logs.append(f"{len(uncovered)} feeds returned 0 records (e.g. domain requires unlocked proxy zone in Bright Data: {', '.join(uncovered[:2])}).")
                     elif force_engine == "bright_data_dca":
                         pipeline_errors.append(f"Bright Data DCA job {job_id} returned no records.")
+                    else:
+                        telemetry_logs.append(f"Bright Data DCA job {job_id} returned 0 records for the requested batch.")
             except (httpx.HTTPError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
                 telemetry_logs.append(f"Bright Data DCA attempt status: {exc!s}")
                 if force_engine == "bright_data_dca":
                     pipeline_errors.append(f"Bright Data DCA collection failed: {exc!s}")
 
-    # 2. Once Bright Data is configured, the entire requested URL batch is
-    # intentionally owned by Bright Data. This is important for provenance:
-    # a successful Stripe response must not be combined with locally fetched
-    # records from the other feeds. Direct parsers remain available through
-    # force_engine="direct" and as an explicit local fallback when auto mode
-    # has no Bright Data credentials at all.
-    if force_engine == "direct" or (force_engine == "auto" and (not settings.bright_data_api_token or not coll_id_used or len(raw_items) == 0)):
+    # 2. Bright Data Provenance Guarantee:
+    # When Bright Data is configured, 100% of URLs are submitted to Bright Data DCA.
+    # We NEVER mix in local fallback records or hide failures.
+    # Direct parsers are ONLY engaged when explicitly selected (force_engine='direct')
+    # or in local development mode without Bright Data credentials.
+    if force_engine == "direct" or (force_engine == "auto" and (not settings.bright_data_api_token or not coll_id_used)):
         if force_engine == "direct":
             telemetry_logs.append("Direct parser mode was explicitly selected.")
-        elif not settings.bright_data_api_token or not coll_id_used:
-            telemetry_logs.append("Bright Data is not configured; using local direct-parser fallback.")
         else:
-            telemetry_logs.append("Bright Data DCA returned 0 records; engaging resilient parser fallback.")
+            telemetry_logs.append("Bright Data credentials absent; using local development parsers.")
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 DriftWatch/1.0"}
         async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
             tasks = [scrape_target_url(u, client) for u in urls]
