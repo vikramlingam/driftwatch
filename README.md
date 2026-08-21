@@ -186,7 +186,7 @@ The repository contains complete artifacts and evidence for all hackathon submis
 - The API strictly rejects government, private-network, credentialed, and non-HTTP(S) scraping targets.
 
 ### 3. Demo Video
-- **Walkthrough Demo Video**: [Watch the DriftWatch Demo Video](https://youtu.be/driftwatch-demo)
+- **Walkthrough Demo Video**: [Watch the DriftWatch Demo Video](https://youtu.be/8no3eei6sdM)
 
 ### 4. AI Coding Assistant Disclosure
 - **AI Tools Used**: Google Antigravity / Gemini was utilized as an AI coding assistant during hackathon development for code formatting, frontend Bento styling, and rapid refactoring.
