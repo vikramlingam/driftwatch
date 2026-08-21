@@ -1,6 +1,8 @@
 import asyncio
+
 from fastapi.testclient import TestClient
-from backend.audit import audit_project_file, create_code_fix, _extract_mcp_config_names
+
+from backend.audit import _extract_mcp_config_names, audit_project_file, create_code_fix
 from backend.db import Database
 from backend.impact import scan_directory_for_impact, scan_file_for_impacts
 from backend.main import app
@@ -247,7 +249,7 @@ def test_zero_dummy_records_saved_on_failed_scrape(monkeypatch, tmp_path):
     assert result.valid_items_saved == 0
     db = Database(tmp_path / "test.db")
     assert db.count() == 0
-    assert len(result.quarantined_errors) >= 1
+    assert len(result.pipeline_errors) >= 1
 
 
 def test_malformed_records_are_quarantined_without_corrupting_db(monkeypatch, tmp_path):
@@ -443,8 +445,8 @@ def test_github_scan_endpoint_mock(monkeypatch):
 
 def test_markdown_changelog_parser():
     """Verify authentic extraction from markdown changelogs (CrewAI, LlamaIndex, Next.js)."""
+
     from backend.scraper import scrape_raw_markdown_changelog
-    import httpx
 
     sample_md = """# Changelog
 ## [0.28.0] - 2026-06-15
@@ -475,8 +477,9 @@ def test_markdown_changelog_parser():
 
 def test_strict_normalization_quarantine_on_missing_fields():
     """Verify that records missing vital fields (e.g. empty summary or title) raise validation error and get quarantined."""
-    from backend.scraper import _normalize
     import pytest
+
+    from backend.scraper import _normalize
 
     # 1. Missing summary raises ValueError (quarantine candidate)
     with pytest.raises(ValueError, match="Missing or invalid 'plain_summary'"):
@@ -487,10 +490,20 @@ def test_strict_normalization_quarantine_on_missing_fields():
         _normalize({"title": "", "plain_summary": "Valid summary content here."}, "https://docs.stripe.com", "direct")
 
 
-def test_add_custom_target_feed_endpoint(monkeypatch):
+def test_add_custom_target_feed_endpoint(monkeypatch, tmp_path):
     """Verify adding custom target feed persists and informs continuous watcher without external network calls."""
     from datetime import datetime, timezone
+
+    import backend.main as main_module
+    from backend.config import settings
     from backend.models import ScrapePipelineResult
+    from backend.watcher import watcher_instance
+
+    test_db = Database(tmp_path / "test.db")
+    original_targets = list(watcher_instance.target_urls)
+    original_custom_targets = list(settings.custom_target_urls)
+    monkeypatch.setattr(main_module, "db", test_db)
+
     async def mock_run_pipeline(*args, **kwargs):
         return ScrapePipelineResult(
             batch_id="batch-mock",
@@ -504,13 +517,18 @@ def test_add_custom_target_feed_endpoint(monkeypatch):
             execution_engine="direct",
         )
     monkeypatch.setattr("backend.main.run_pipeline", mock_run_pipeline)
-    client = TestClient(app)
-    res = client.post("/api/targets/add", json={"url": "https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md"})
-    assert res.status_code == 200
-    data = res.json()
-    assert data["status"] == "added"
-    assert data["target_url"] == "https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md"
-    assert data["monitored_targets_count"] >= 2
+    try:
+        client = TestClient(app)
+        res = client.post("/api/targets/add", json={"url": "https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md"})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "added"
+        assert data["target_url"] == "https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md"
+        assert data["monitored_targets_count"] >= 2
+        assert test_db.get_custom_targets() == ["https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md"]
+    finally:
+        watcher_instance.target_urls = original_targets
+        settings.custom_target_urls = original_custom_targets
 
 
 def test_watcher_pending_repairs_approval_and_rejection():
@@ -557,3 +575,152 @@ def test_github_config_alias_endpoint():
     assert res2.status_code == 200
     assert res1.json() == res2.json()
 
+
+def test_forced_bright_data_mode_reports_missing_configuration(monkeypatch, tmp_path):
+    from backend import scraper
+
+    monkeypatch.setattr(scraper.settings, "database_path", str(tmp_path / "test.db"))
+    monkeypatch.setattr(scraper.settings, "bright_data_api_token", "")
+    monkeypatch.setattr(scraper.settings, "bright_data_collector_id", "c_missing_token")
+
+    result = asyncio.run(
+        scraper.run_pipeline(
+            ["https://docs.stripe.com/changelog"],
+            force_engine="bright_data_dca",
+        )
+    )
+
+    assert result.execution_engine == "bright_data_dca"
+    assert result.valid_items_saved == 0
+    assert result.pipeline_errors
+    assert "BRIGHT_DATA_API_TOKEN" in result.pipeline_errors[0]
+
+
+def test_auto_mode_scrapes_uncovered_feeds_after_dca(monkeypatch, tmp_path):
+    from backend import scraper
+
+    stripe_url = "https://docs.stripe.com/changelog"
+    openai_url = "https://raw.githubusercontent.com/openai/openai-python/main/CHANGELOG.md"
+    calls = []
+
+    monkeypatch.setattr(scraper.settings, "database_path", str(tmp_path / "test.db"))
+    monkeypatch.setattr(scraper.settings, "bright_data_api_token", "test-token")
+    monkeypatch.setattr(scraper.settings, "bright_data_collector_id", "c_test")
+
+    async def mock_trigger(urls, collector_id=None):
+        return "job-1"
+
+    async def mock_poll(*args, **kwargs):
+        return [{
+            "entry_id": "dca-stripe",
+            "title": "Stripe DCA update",
+            "ecosystem": "Stripe",
+            "category": "FEATURE_UPDATE",
+            "urgency": "LOW",
+            "plain_summary": "A valid Bright Data record.",
+            "source_url": stripe_url,
+        }]
+
+    async def mock_direct(url, client):
+        calls.append(url)
+        return [{
+            "entry_id": "direct-openai",
+            "title": "OpenAI direct update",
+            "ecosystem": "OpenAI",
+            "category": "FEATURE_UPDATE",
+            "urgency": "LOW",
+            "plain_summary": "A valid direct record.",
+            "source_url": url,
+        }]
+
+    monkeypatch.setattr(scraper, "trigger_scrape", mock_trigger)
+    monkeypatch.setattr(scraper, "poll_results", mock_poll)
+    monkeypatch.setattr(scraper, "scrape_target_url", mock_direct)
+
+    result = asyncio.run(scraper.run_pipeline([stripe_url, openai_url]))
+
+    assert calls == [openai_url]
+    assert result.execution_engine == "mixed"
+    assert result.valid_items_saved == 2
+    assert result.quarantined_items_count == 0
+
+
+def test_impact_scanner_ignores_target_urls(monkeypatch, tmp_path):
+
+    advisory = DocUpdateItem(
+        entry_id="openai-url-only",
+        ecosystem="OpenAI",
+        title="OpenAI update",
+        category="FEATURE_UPDATE",
+        urgency="LOW",
+        plain_summary="A normal update.",
+        affected_code=["openai.ChatCompletion"],
+        source_url="https://docs.example.com/changelog",
+        execution_engine="direct",
+    )
+    content = "TARGETS = {'OpenAI': 'https://raw.githubusercontent.com/openai/openai-python/main/CHANGELOG.md'}\n"
+
+    assert scan_file_for_impacts("targets.ts", content, [advisory]) == []
+
+
+def test_watcher_approval_persists_verified_evidence(monkeypatch, tmp_path):
+    from backend import watcher as watcher_module
+    from backend.models import (
+        PendingRepairItem,
+        RecoveryEvidenceReport,
+        SelfHealingLoopResponse,
+    )
+
+    monkeypatch.setattr(watcher_module.settings, "database_path", str(tmp_path / "test.db"))
+    monkeypatch.setattr(watcher_module.settings, "bright_data_collector_id", "c_test")
+
+    evidence = RecoveryEvidenceReport(
+        report_id="evidence-test",
+        collector_id="c_test",
+        target_url="https://docs.stripe.com/changelog",
+        pre_heal_record_count=0,
+        pre_heal_diagnostic="selector miss",
+        bright_data_verified_job_id="job-test",
+        execution_engine_used="bright_data_dca",
+        post_heal_record_count=3,
+        recovered_schema_fields=["title"],
+        quarantined_contract_errors_count=0,
+        timestamped_execution_trace=["verified"],
+        approval_mode="AUTO_APPROVED",
+        evidence_sha256="a" * 64,
+    )
+
+    async def mock_heal(**kwargs):
+        return SelfHealingLoopResponse(
+            collector_id="c_test",
+            target_url="https://docs.stripe.com/changelog",
+            step_1_break_detected=True,
+            break_diagnostic="selector miss",
+            step_2_heal_proposed="new selectors",
+            step_3_approved=True,
+            step_4_rerun_success=True,
+            step_4_rerun_records_count=3,
+            total_duration_seconds=0.1,
+            stage_logs=["verified"],
+            final_status="RECOVERED_AND_VERIFIED",
+            evidence_report=evidence,
+        )
+
+    monkeypatch.setattr(watcher_module, "run_closed_loop_self_healing", mock_heal)
+    watcher = ContinuousDriftWatcher()
+    watcher.pending_repairs = [PendingRepairItem(
+        repair_id="repair-test",
+        target_url="https://docs.stripe.com/changelog",
+        risk_level="HIGH_RISK",
+        issue_description="schema shift",
+        proposed_fix="new selectors",
+        status="PENDING",
+        created_at="2026-08-21T00:00:00Z",
+    )]
+
+    approved = asyncio.run(watcher.approve_repair("repair-test"))
+
+    assert approved is not None
+    assert approved.status == "APPROVED"
+    assert approved.evidence_report is not None
+    assert approved.evidence_report.post_heal_record_count == 3

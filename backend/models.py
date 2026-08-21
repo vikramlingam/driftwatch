@@ -1,11 +1,12 @@
 """Strict data contracts exchanged by the scraper, API, and UI."""
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", protected_namespaces=())
 
 
 class DocUpdateItem(StrictModel):
@@ -55,6 +56,7 @@ class ScrapePipelineResult(StrictModel):
     valid_items_saved: int
     quarantined_items_count: int
     quarantined_errors: list[str]
+    pipeline_errors: list[str] = Field(default_factory=list)
     time_taken_seconds: float
     finished_at: datetime
     execution_engine: str = "bright_data_dca"  # "bright_data_dca" or "direct"
@@ -110,7 +112,7 @@ class PendingRepairItem(StrictModel):
     risk_level: str
     issue_description: str
     proposed_fix: str | None = None
-    status: Literal["PENDING", "APPROVED", "REJECTED"]
+    status: Literal["PENDING", "APPROVED", "REJECTED", "FAILED"]
     created_at: str
     evidence_report: RecoveryEvidenceReport | None = None
 
@@ -254,4 +256,3 @@ class GitHubConfigStatus(StrictModel):
     openrouter_model: str
     github_token_configured: bool
     github_username: str
-

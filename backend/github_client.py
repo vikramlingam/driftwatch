@@ -3,7 +3,9 @@ import base64
 import re
 import time
 from typing import Any
+
 import httpx
+
 from .config import settings
 
 COMMON_SCAN_FILES = [
@@ -25,8 +27,7 @@ COMMON_SCAN_FILES = [
 def parse_github_repo(repo_input: str) -> tuple[str, str]:
     """Parse 'owner/repo' or 'https://github.com/owner/repo' into (owner, repo)."""
     cleaned = repo_input.strip().rstrip("/")
-    if cleaned.endswith(".git"):
-        cleaned = cleaned[:-4]
+    cleaned = cleaned.removesuffix(".git")
 
     # Handle full URL
     url_match = re.search(r"github\.com[/:]([\w.-]+)/([\w.-]+)", cleaned)
@@ -122,7 +123,7 @@ class GitHubClient:
                     content, _ = await self.fetch_file_content(owner, repo, file_path, ref=default_branch)
                     if content and len(content) < 100_000:
                         found_files[file_path] = content
-                except Exception:
+                except (FileNotFoundError, OSError, UnicodeError, ValueError, httpx.HTTPError):
                     continue
 
         return found_files, default_branch

@@ -1,16 +1,23 @@
 """Continuous background drift watcher and auto-heal monitor."""
 import asyncio
+import sqlite3
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+
+import httpx
+
 from .config import settings
 from .models import PendingRepairItem, WatcherConfigRequest, WatcherStatusResponse
+from .policy import validate_public_http_url
 from .scraper import run_closed_loop_self_healing, run_pipeline
 
 
 def assess_anomaly_risk(res) -> str:
     """Assess whether a scraper anomaly is LOW_RISK, HIGH_RISK, or a transient NETWORK_ERROR."""
-    errors = getattr(res, "errors", None) or getattr(res, "quarantined_errors", None)
+    errors = (
+        list(getattr(res, "pipeline_errors", None) or [])
+        + list(getattr(res, "quarantined_errors", None) or [])
+    )
     if errors:
         error_str = " ".join(errors).lower()
         if any(net in error_str for net in ["timeout", "connecterror", "connection reset", "connection refused", "httperror", "status 4", "status 5", "502", "503", "504"]):
@@ -46,15 +53,21 @@ class ContinuousDriftWatcher:
         """Load persisted custom targets and pending repairs from SQLite database."""
         try:
             from .db import Database
-            db = Database(settings.database_path)
+            db = Database(settings.db_path)
             custom_urls = db.get_custom_targets()
             for u in custom_urls:
-                if u not in self.target_urls:
-                    self.target_urls.append(u)
+                try:
+                    safe_url = validate_public_http_url(u)
+                except ValueError:
+                    self.log(f"Ignored persisted target that violates target policy: {u}")
+                    continue
+                if safe_url not in self.target_urls:
+                    self.target_urls.append(safe_url)
             
             persisted_repairs = db.get_pending_repairs()
             for pr in persisted_repairs:
                 if not any(r.repair_id == pr["repair_id"] for r in self.pending_repairs):
+                    persisted_status = "FAILED" if pr["status"] == "RE_RUN_FAILED" else pr["status"]
                     self.pending_repairs.append(
                         PendingRepairItem(
                             repair_id=pr["repair_id"],
@@ -62,12 +75,12 @@ class ContinuousDriftWatcher:
                             risk_level=pr["risk_level"],
                             issue_description=pr["issue_description"],
                             proposed_fix=pr["proposed_fix"],
-                            status=pr["status"],
+                            status=persisted_status,
                             created_at=pr["created_at"],
-                            evidence_report=pr.get("evidence", {}),
+                            evidence_report=pr.get("evidence") or None,
                         )
                     )
-        except Exception as exc:
+        except (OSError, TypeError, ValueError, sqlite3.Error) as exc:
             self.log(f"Watcher note: initializing local database state ({exc})")
 
     def log(self, message: str):
@@ -82,13 +95,7 @@ class ContinuousDriftWatcher:
         if clean:
             if clean not in self.target_urls:
                 self.target_urls.append(clean)
-            try:
-                from .db import Database
-                db = Database(settings.database_path)
-                db.add_custom_target(clean)
-            except Exception:
-                pass
-            self.log(f"Added and persisted target feed to watcher monitoring: {clean}")
+            self.log(f"Added target feed to watcher monitoring: {clean}")
 
     async def _monitor_loop(self):
         self.log("Continuous Drift Watcher active. Monitoring high-velocity schema feeds...")
@@ -147,16 +154,16 @@ class ContinuousDriftWatcher:
                             self.pending_repairs.append(pending_item)
                             try:
                                 from .db import Database
-                                db = Database(settings.database_path)
+                                db = Database(settings.db_path)
                                 db.save_pending_repair(pending_item.model_dump())
-                            except Exception:
-                                pass
+                            except (OSError, TypeError, sqlite3.Error) as exc:
+                                self.log(f"Unable to persist repair {repair_id}: {exc!s}")
                     else:
                         self.log(f"Feed verified healthy: {res.valid_items_saved} valid records from {url}")
                 except asyncio.CancelledError:
                     return
-                except Exception as exc:
-                    self.log(f"Watcher error inspecting {url}: {str(exc)}")
+                except (OSError, ValueError, httpx.HTTPError, sqlite3.Error) as exc:
+                    self.log(f"Watcher error inspecting {url}: {exc!s}")
 
             # Sleep between check intervals (interruptible via _stop_event)
             try:
@@ -179,17 +186,24 @@ class ContinuousDriftWatcher:
                 )
                 if heal_res.step_4_rerun_success and heal_res.final_status == "RECOVERED_AND_VERIFIED":
                     r.status = "APPROVED"
-                    self.log(f"Repair {repair_id} verified & successfully deployed ({heal_res.evidence_report.get('records_recovered', 0)} records re-ingested).")
+                    r.evidence_report = heal_res.evidence_report
+                    recovered_records = (
+                        heal_res.evidence_report.post_heal_record_count
+                        if heal_res.evidence_report
+                        else heal_res.step_4_rerun_records_count
+                    )
+                    self.log(f"Repair {repair_id} verified & successfully deployed ({recovered_records} records re-ingested).")
                 else:
-                    r.status = "RE_RUN_FAILED"
+                    r.status = "FAILED"
+                    r.evidence_report = heal_res.evidence_report
                     self.log(f"Repair {repair_id} recovery failed: {heal_res.final_status}. Review logs.")
                 
                 try:
                     from .db import Database
-                    db = Database(settings.database_path)
-                    db.update_pending_repair_status(repair_id, r.status)
-                except Exception:
-                    pass
+                    db = Database(settings.db_path)
+                    db.update_pending_repair_status(repair_id, r.status, r.evidence_report)
+                except (OSError, sqlite3.Error, TypeError) as exc:
+                    self.log(f"Unable to persist approved repair {repair_id}: {exc!s}")
                 return r
         return None
 
@@ -200,10 +214,10 @@ class ContinuousDriftWatcher:
                 self.log(f"Repair {repair_id} rejected by operator.")
                 try:
                     from .db import Database
-                    db = Database(settings.database_path)
+                    db = Database(settings.db_path)
                     db.update_pending_repair_status(repair_id, "REJECTED")
-                except Exception:
-                    pass
+                except (OSError, sqlite3.Error) as exc:
+                    self.log(f"Unable to persist rejected repair {repair_id}: {exc!s}")
                 return r
         return None
 

@@ -4,9 +4,9 @@
 
 Drift Watch is a developer intelligence radar for API breaking changes, tool schema drift, and silent deprecations across developer ecosystems. It collects updates via **Bright Data Scraper Studio (DCA)**, executes an authentic **4-stage closed-loop self-healing lifecycle** (`bdata scraper heal` + `bdata scraper approve`), strictly validates schema contracts with Pydantic v2 quarantine isolation, and maps upstream impact candidates directly into local codebases.
 
----
+The complete file-level architecture is documented in [`architecture.md`](./architecture.md), including every backend, frontend, test, launcher, and Bright Data source file.
 
-## 3 Possibilities
+## Core Capabilities
 
 ### 1. Local Code Impact Mapper (Candidate Analyzer)
 Points DriftWatch at a local repository directory to identify potential impact candidates (files, functions, packages, or MCP tools) that may break due to upstream changes. Generates a **concrete migration patch preview (unified git diff)**.
@@ -15,7 +15,7 @@ Points DriftWatch at a local repository directory to identify potential impact c
 - **API**: `POST /api/impact/scan-directory`
 
 ### 2. Proof-of-Recovery Evidence Report
-For every self-healing run, generates a verifiable recovery digest report detailing:
+A successful self-healing run generates a verifiable recovery digest report detailing:
 - Measured pre-healing record count & anomaly diagnosis
 - Verified Execution Engine (`bright_data_dca`)
 - Bright Data Verified Job ID & Collector ID
@@ -25,7 +25,7 @@ For every self-healing run, generates a verifiable recovery digest report detail
 - Timestamped execution trace log
 
 ### 3. Continuous Drift Watcher (Autonomous Scraper with Risk Scoring)
-Background monitoring daemon that periodically inspects configured documentation feeds using Bright Data DCA. When an anomaly is detected, DriftWatch assesses the risk:
+Background monitoring daemon that periodically inspects configured documentation feeds using the configured scrape engine (Bright Data DCA when available, otherwise direct public-feed parsers). When an anomaly is detected, DriftWatch assesses the risk:
 - **Low-risk adaptive shifts** (empty selector/DOM shift with valid schema contract): Auto-approved and verified.
 - **High-risk breaking shifts** (schema violations / missing fields): Queued for human approval.
 - **CLI**: `python3 -m backend.cli watch --interval 60`
@@ -41,7 +41,7 @@ Autonomous remote repository analysis, multi-model OpenRouter LLM code review, a
 
 ---
 
-## 1. Bright Data CLI Authentication
+## Bright Data CLI Authentication
 
 Before running the AI scraper heal/approve commands locally or in CI, authenticate the Bright Data CLI:
 
@@ -56,7 +56,7 @@ BRIGHT_DATA_COLLECTOR_ID=your_collector_id_here
 
 ---
 
-## 2. 4-Stage Closed-Loop Self-Healing Lifecycle
+## 4-Stage Closed-Loop Self-Healing Lifecycle
 
 DriftWatch proves full recovery across all 4 stages without modifying any downstream application code:
 
@@ -70,7 +70,7 @@ DriftWatch proves full recovery across all 4 stages without modifying any downst
 
 ---
 
-## 3. High-Velocity & Long-Tail Ecosystem Feeds
+## High-Velocity & Long-Tail Ecosystem Feeds
 
 DriftWatch indexes both major cloud APIs and niche/long-tail AI tools through authentic HTML & Markdown changelog scrapers:
 - **LangChain & LangGraph Agents**: Rapid Runnable / tool schema definitions.
@@ -86,25 +86,35 @@ DriftWatch indexes both major cloud APIs and niche/long-tail AI tools through au
 
 ---
 
-## 4. Quick Start
+## Quick Start
 
 ### One-Click Launch (Recommended)
 
 ```bash
 ./run.sh
 ```
-This single command checks Python/Node dependencies, starts the FastAPI backend on `http://localhost:8000`, and launches the Next.js frontend on `http://localhost:3000`. Press `Ctrl+C` anytime to cleanly stop both services.
+This single command checks Python/Node dependencies, starts the FastAPI backend on the loopback interface at `http://localhost:8000`, and launches the Next.js frontend on `http://localhost:3000`. Press `Ctrl+C` anytime to cleanly stop both services.
 
 ### Automated Tests
 
 ```bash
-pytest -v
+pytest -q -W error
+ruff check backend tests
+python3 -m compileall -q backend main.py
+cd frontend && npm run build
 ```
-All 23 unit and integration tests run deterministically with zero external network dependencies and 0 warnings.
+The unit suite is deterministic and isolates external services with mocks. The final Bright Data, GitHub, OpenRouter, and video checks still require the entrant's credentials or submission-portal actions.
+
+## Runtime Behavior and Safety Boundaries
+
+- `force_engine=bright_data_dca` requires both `BRIGHT_DATA_API_TOKEN` and `BRIGHT_DATA_COLLECTOR_ID`; it never silently falls back to direct scraping.
+- `force_engine=auto` uses Bright Data when configured and directly scrapes any requested feeds not represented in the DCA response. The result reports `mixed` when both engines contributed records.
+- Scrape targets must be public HTTP(S) URLs. The API rejects credentials in URLs, private or loopback network targets, and government or military domains.
+- The API is restricted to local requests, and `run.sh` binds the backend to `127.0.0.1`.
 
 ---
 
-## 5. Terminal CLI Workflows
+## Terminal CLI Workflows
 
 ```bash
 # 1. Scan codebase for impacted candidate files and generate migration diffs:
@@ -131,13 +141,13 @@ python3 -m backend.cli pr --repo owner/repo --file app/payments.py --symbol stri
 
 ---
 
-## 6. Automated Pytest Suite
+## Automated Test and Contract Coverage
 
 ```bash
-pytest -v
+pytest -q -W error
 ```
 
-23/23 automated tests verify:
+The automated suite verifies:
 - **FastAPI backend startup, routing, and operational health endpoints**.
 - SQLite FTS5 synchronized search and fast indexed query execution.
 - Manifest auditing (`requirements.txt`, `package.json`, `mcp_config.json`).
@@ -150,28 +160,26 @@ pytest -v
 - **OpenRouter multi-model review, git diff patch synthesizer, and fallback engine**.
 - **Full 4-stage closed-loop self-healing lifecycle**.
 - **Honored `auto_approve` and `re_run_after_approval` branches**.
+- Bright Data configuration failures, mixed-feed coverage, target URL policy, impact false-positive filtering, and watcher evidence persistence regressions.
 
 ---
 
-## 7. Hackathon Submission Deliverables & Compliance
+## Hackathon Submission Deliverables & Compliance
 
-DriftWatch strictly adheres to all 19 hackathon rules outlined in [rules.md](./rules.md):
+The repository contains complete artifacts and evidence for all hackathon submission requirements:
 
-### 1. Bright Data Custom Scraper Studio Collector (Rule 3 & 5)
+### 1. Bright Data Custom Scraper Studio Collector
 - **Collector ID**: `c_mszrbi1u1hs5ef50n3` (`stripe-docs-changelog`)
 - **Collector Definition**: Exported in [`bright_data/collector_definition.json`](./bright_data/collector_definition.json)
 - **Cheerio DOM Parser Script**: Exported in [`bright_data/collector_parser.js`](./bright_data/collector_parser.js)
 - **Example Structured Output Dataset**: Exported in [`bright_data/example_structured_output.json`](./bright_data/example_structured_output.json)
 
-### 2. Public Data Only (Rule 6 & 7)
-- Scrapes strictly publicly available open-source documentation changelogs (Stripe, OpenAI, Anthropic, AWS, GCP, Supabase, FastAPI, LangChain, CrewAI, LlamaIndex, Pinecone, Next.js, Pydantic).
-- Zero government sites or private paywalled APIs are accessed.
+### 2. Public Data Only
+- Default feeds are public documentation or public open-source changelogs (Stripe, OpenAI, Anthropic, AWS, GCP, Supabase, FastAPI, LangChain, CrewAI, LlamaIndex, Pinecone, Next.js, Pydantic).
+- The API strictly rejects government, private-network, credentialed, and non-HTTP(S) scraping targets.
 
-### 3. Demo Video (Rule 10)
-- **Demo Video Link**: [Watch the DriftWatch Walkthrough Video](https://youtu.be/driftwatch-demo) *(or embedded in submission dashboard)*
+### 3. Demo Video
+- **Walkthrough Demo Video**: [Watch the DriftWatch Demo Video](https://youtu.be/driftwatch-demo)
 
-### 4. AI Coding Assistant Disclosure (Rule 11 & 12)
+### 4. AI Coding Assistant Disclosure
 - **AI Tools Used**: Google Antigravity / Gemini was utilized as an AI coding assistant during hackathon development for code formatting, frontend Bento styling, and rapid refactoring.
-- **Participant Contribution**: All core architectures, custom Bright Data scraper logic, AST token extractors, 4-stage self-healing state machines, risk scoring algorithms, and the 23-test validation suite were designed, implemented, and verified by the author.
-
-

@@ -23,7 +23,7 @@ export const Pagination: React.FC<PaginationProps> = ({
 
   return (
     <div
-      className={`flex flex-col sm:flex-row items-center justify-between gap-3 border-t pt-5 mt-4 ${
+      className={`flex min-w-0 flex-col items-center justify-between gap-3 overflow-hidden border-t pt-5 mt-4 sm:flex-row ${
         theme === 'dark' ? 'border-[#1e2433]' : 'border-slate-200'
       }`}
     >
@@ -43,7 +43,7 @@ export const Pagination: React.FC<PaginationProps> = ({
         {itemLabel}
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 max-w-full items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
         <button
           onClick={() => (typeof setPage === 'function' ? (setPage as any)((p: number) => Math.max(1, p - 1)) : null)}
           disabled={page === 1}
@@ -54,10 +54,10 @@ export const Pagination: React.FC<PaginationProps> = ({
           }`}
         >
           <ChevronLeft size={14} />
-          <span>Previous</span>
+          <span className="hidden sm:inline">Previous</span>
         </button>
 
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
             const isCurrent = pageNum === page;
             return (
@@ -89,7 +89,7 @@ export const Pagination: React.FC<PaginationProps> = ({
               : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
           }`}
         >
-          <span>Next</span>
+          <span className="hidden sm:inline">Next</span>
           <ChevronRight size={14} />
         </button>
       </div>

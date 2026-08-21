@@ -3,6 +3,7 @@ import difflib
 import json
 import re
 from typing import Any
+
 from .db import Database
 from .models import DocUpdateItem, ProjectAuditMatch, ProjectAuditResponse
 
@@ -12,7 +13,7 @@ def _extract_requirements_names(content: str) -> list[str]:
     names: list[str] = []
     for raw_line in content.splitlines():
         line = raw_line.strip()
-        if not line or line.startswith("#") or line.startswith("-"):
+        if not line or line.startswith(("#", "-")):
             continue
         # Remove trailing environment markers e.g. ; python_version >= '3.8'
         line = line.split(";")[0].strip()
@@ -35,7 +36,7 @@ def _extract_package_json_names(content: str) -> list[str]:
         data = json.loads(content)
         if not isinstance(data, dict):
             return []
-    except Exception:
+    except json.JSONDecodeError:
         return []
     keys = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]
     names: list[str] = []
@@ -51,7 +52,7 @@ def _extract_mcp_config_names(content: str) -> list[str]:
     names: list[str] = []
     try:
         data = json.loads(content)
-    except Exception:
+    except json.JSONDecodeError:
         return []
 
     # Check standard mcpServers root key
@@ -144,7 +145,7 @@ def audit_project_file(content: str, file_type: str, db: Database) -> ProjectAud
                         ready_to_use_fix=fix,
                     )
                 )
-            except Exception:
+            except (TypeError, ValueError):
                 continue
 
     return ProjectAuditResponse(

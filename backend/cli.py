@@ -1,8 +1,10 @@
 """Command-line interface demonstrating Bright Data self-healing, code impact mapper, and continuous drift watcher."""
 import argparse
 import asyncio
-import json
 import sys
+
+import httpx
+
 from .audit import audit_project_file
 from .config import settings
 from .db import Database
@@ -31,6 +33,10 @@ async def cmd_scan(args):
     print(f"[+] Valid Items Saved to SQLite: {res.valid_items_saved}")
     print(f"[+] Quarantined Anomalies: {res.quarantined_items_count}")
     print(f"[+] Time Taken: {res.time_taken_seconds}s\n")
+    if res.pipeline_errors:
+        print("[!] Pipeline Errors:")
+        for err in res.pipeline_errors:
+            print(f"    - {err}")
     if res.quarantined_errors:
         print("[!] Quarantine Errors:")
         for err in res.quarantined_errors:
@@ -109,7 +115,7 @@ def cmd_audit(args):
     try:
         with open(args.file, "r") as f:
             content = f.read()
-    except Exception as e:
+    except (OSError, UnicodeError) as e:
         print(f"[-] Could not read file {args.file}: {e}")
         sys.exit(1)
 
@@ -158,7 +164,7 @@ async def cmd_github_scan(args):
     client = GitHubClient(token=args.token or settings.github_token)
     try:
         found_files, branch = await client.scan_repo_manifests_and_code(owner, repo, branch=args.branch)
-    except Exception as e:
+    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as e:
         print(f"[-] GitHub Scan Error: {e}")
         sys.exit(1)
 
@@ -235,7 +241,7 @@ async def cmd_github_pr(args):
         pr_body=review_resp.suggested_pr_body,
         base_branch=args.branch or "main",
     )
-    print(f"\n[+] SUCCESS! Pull Request Opened:")
+    print("\n[+] SUCCESS! Pull Request Opened:")
     print(f"    URL: {pr_res['pr_url']}")
     print(f"    Branch: {pr_res['branch_created']}")
 
@@ -310,4 +316,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

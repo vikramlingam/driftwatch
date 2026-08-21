@@ -1,5 +1,5 @@
-import React from 'react';
-import { BookOpen, Plus } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Search, Layers } from 'lucide-react';
 import { TARGETS, DocUpdate } from '../types';
 
 interface RightSidebarProps {
@@ -19,49 +19,70 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   ecosystemCounts,
   setIsAddTargetOpen,
 }) => {
+  const [filterSearch, setFilterSearch] = useState('');
+
+  const filteredTargets = TARGETS.filter((t) =>
+    t.toLowerCase().includes(filterSearch.toLowerCase())
+  );
+
   return (
-    <aside className="hidden xl:block w-[270px] shrink-0 sticky top-[60px] max-h-[calc(100vh-70px)] overflow-y-auto space-y-3.5">
+    <aside className="hidden xl:block w-[280px] shrink-0 xl:sticky xl:top-[56px] xl:h-[calc(100vh-72px)] select-none">
       <div
-        className={`rounded-xl border p-4 space-y-3 transition ${
+        className={`h-full rounded-xl border p-3 flex flex-col justify-between transition ${
           theme === 'dark' ? 'bg-[#11141c] border-[#1e2433]' : 'bg-white border-slate-200 shadow-sm'
         }`}
       >
-        <div
-          className={`flex items-center justify-between border-b pb-3 ${
-            theme === 'dark' ? 'border-[#1e2433]' : 'border-slate-200'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <BookOpen size={15} className="text-indigo-400" />
-            <h3
-              className={`text-xs font-bold uppercase tracking-wider ${
-                theme === 'dark' ? 'text-white' : 'text-slate-900'
+        {/* Top Header & Search Area */}
+        <div className="space-y-2.5 shrink-0 pb-2 border-b border-[#1e2433]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Layers size={15} className="text-indigo-400" />
+              <h3
+                className={`text-[11px] font-bold uppercase tracking-wider ${
+                  theme === 'dark' ? 'text-white' : 'text-slate-900'
+                }`}
+              >
+                Documentations
+              </h3>
+            </div>
+            <span
+              className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold border ${
+                theme === 'dark'
+                  ? 'bg-[#161a25] text-indigo-300 border-indigo-500/30'
+                  : 'bg-indigo-50 text-indigo-700 border-indigo-200'
               }`}
             >
-              Documentations
-            </h3>
+              {TARGETS.length - 1} Feeds
+            </span>
           </div>
-          <span
-            className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold border ${
-              theme === 'dark'
-                ? 'bg-[#161a25] text-slate-300 border-[#1e2433]'
-                : 'bg-slate-100 text-slate-600 border-slate-200'
-            }`}
-          >
-            {TARGETS.length - 1}
-          </span>
+
+          {/* Quick Search Filter */}
+          <div className="relative">
+            <Search size={13} className="absolute left-2.5 top-2.5 text-[#64748b]" />
+            <input
+              type="text"
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+              placeholder="Filter ecosystems..."
+              className={`w-full rounded-lg border py-1.5 pl-8 pr-3 text-xs outline-none transition ${
+                theme === 'dark'
+                  ? 'bg-[#0b0e14] border-[#1e2433] text-white placeholder-[#64748b] focus:border-indigo-500'
+                  : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400 focus:border-indigo-500'
+              }`}
+            />
+          </div>
         </div>
 
-        {/* List of documentation feeds formatted strictly in ONE SINGLE LINE per item */}
-        <div className="space-y-1 max-h-[calc(100vh-250px)] overflow-y-auto pr-1">
-          {TARGETS.map((t) => {
+        {/* Scrollable Feed List (strictly fits remaining space) */}
+        <div className="flex-1 min-h-0 overflow-y-auto py-2 space-y-1 pr-1 scrollbar-thin">
+          {filteredTargets.map((t) => {
             const isSelected = ecosystem === t;
             const count = t === 'All' ? updates.length : ecosystemCounts[t] || 0;
             return (
               <button
                 key={t}
                 onClick={() => setEcosystem(t)}
-                className={`w-full flex items-center justify-between rounded-lg px-3 py-2 text-xs transition whitespace-nowrap ${
+                className={`w-full flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition whitespace-nowrap ${
                   isSelected
                     ? 'bg-indigo-600 text-white font-bold shadow-sm'
                     : theme === 'dark'
@@ -71,11 +92,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               >
                 <div className="flex items-center gap-2 truncate">
                   <span
-                    className={`h-2 w-2 rounded-full shrink-0 ${
-                      isSelected ? 'bg-white' : count > 0 ? 'bg-emerald-400' : 'bg-slate-400'
+                    className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                      isSelected ? 'bg-white' : count > 0 ? 'bg-emerald-400' : 'bg-slate-500'
                     }`}
                   />
-                  <span className="truncate">{t}</span>
+                  <span className="truncate font-medium">{t}</span>
                 </div>
 
                 <span
@@ -96,20 +117,26 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               </button>
             );
           })}
+
+          {filteredTargets.length === 0 && (
+            <div className="py-6 text-center text-xs text-[#64748b]">
+              No matching ecosystems
+            </div>
+          )}
         </div>
 
-        {/* Quick Add Custom Target */}
-        <div className={`pt-2 border-t ${theme === 'dark' ? 'border-[#1e2433]' : 'border-slate-200'}`}>
+        {/* Bottom Pinned Add Target Feed Button */}
+        <div className={`pt-2 border-t shrink-0 ${theme === 'dark' ? 'border-[#1e2433]' : 'border-slate-200'}`}>
           <button
             onClick={() => setIsAddTargetOpen(true)}
-            className={`w-full flex items-center justify-center gap-1.5 rounded-lg border py-2 text-xs font-semibold transition ${
+            className={`w-full flex items-center justify-center gap-2 rounded-lg border py-2 text-xs font-semibold transition ${
               theme === 'dark'
-                ? 'border-[#1e2433] bg-[#161a25] text-[#94a3b8] hover:text-white hover:bg-[#1f2536]'
-                : 'border-slate-200 bg-slate-50 text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                ? 'border-[#1e2433] bg-[#161a25] text-slate-200 hover:text-white hover:bg-[#1f2536] hover:border-indigo-500/50'
+                : 'border-slate-200 bg-slate-50 text-slate-700 hover:text-slate-900 hover:bg-slate-100 hover:border-indigo-400'
             }`}
           >
-            <Plus size={13} />
-            <span>Add Target Feed</span>
+            <Plus size={13} className="text-indigo-400" />
+            <span>Add Custom Target Feed</span>
           </button>
         </div>
       </div>

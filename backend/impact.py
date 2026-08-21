@@ -3,9 +3,9 @@ import difflib
 import os
 import re
 from pathlib import Path
-from typing import Any
+
 from .db import Database
-from .models import CodebaseImpactReport, DocUpdateItem, FileImpactMatch, StrictModel
+from .models import CodebaseImpactReport, DocUpdateItem, FileImpactMatch
 
 # Generic keywords and URL artifacts that must NOT trigger symbol matching
 GENERIC_STOPWORDS = {
@@ -47,13 +47,29 @@ def is_meaningful_symbol(symbol: str) -> bool:
     return (has_separator and len(lower) >= 4) or is_camel_case or is_mcp_spec or is_known_sdk
 
 
+def _searchable_line(line: str) -> str:
+    """Remove URL literals before matching symbols to avoid config noise."""
+
+    return re.sub(r"https?://[^\s'\"`]+", " ", line)
+
+
+def _ecosystem_is_used(symbol: str, line: str, extension: str) -> bool:
+    """Require an import or qualified reference for ecosystem-only matches."""
+
+    escaped = re.escape(symbol)
+    if extension == ".py":
+        return bool(re.search(rf"\b(?:import|from)\s+{escaped}\b|\b{escaped}\s*\.", line, re.IGNORECASE))
+    if extension in {".js", ".jsx", ".ts", ".tsx"}:
+        return bool(re.search(rf"\b(?:import|require)\b[^\n]*\b{escaped}\b|\b{escaped}\s*\.", line, re.IGNORECASE))
+    return False
+
+
 def scan_file_for_impacts(
     file_path: str,
     content: str,
     advisories: list[DocUpdateItem],
 ) -> list[FileImpactMatch]:
     """Scan a single source file against indexed advisories with deduplication and plain summaries."""
-    matches: list[FileImpactMatch] = []
     lines = content.splitlines()
     filename = Path(file_path).name.lower()
     ext = Path(file_path).suffix.lower()
@@ -68,6 +84,7 @@ def scan_file_for_impacts(
 
     for item in advisories:
         symbols_to_check = set()
+        ecosystem_symbols = set()
         
         for sym in item.affected_code:
             if is_meaningful_symbol(sym):
@@ -78,12 +95,14 @@ def scan_file_for_impacts(
             eco_lower = item.ecosystem.split()[0].lower()
             if is_meaningful_symbol(eco_lower):
                 symbols_to_check.add(eco_lower)
+                ecosystem_symbols.add(eco_lower)
 
         # In code files, match imported ecosystem
         elif not is_manifest and item.ecosystem:
             eco_lower = item.ecosystem.split()[0].lower()
             if len(eco_lower) >= 4 and is_meaningful_symbol(eco_lower):
                 symbols_to_check.add(eco_lower)
+                ecosystem_symbols.add(eco_lower)
 
         if not symbols_to_check:
             continue
@@ -93,13 +112,17 @@ def scan_file_for_impacts(
 
             for line_idx, line in enumerate(lines, 1):
                 clean_line = line.strip()
-                if not clean_line or clean_line.startswith("#") or clean_line.startswith("//") or clean_line.startswith("/*"):
+                if not clean_line or clean_line.startswith(("#", "//", "/*")):
                     continue
 
                 if ext == ".toml" and clean_line.startswith("[") and clean_line.endswith("]"):
                     continue
 
-                if pattern.search(clean_line):
+                searchable_line = _searchable_line(clean_line)
+                if symbol.lower() in ecosystem_symbols and not _ecosystem_is_used(symbol, searchable_line, ext):
+                    continue
+
+                if pattern.search(searchable_line):
                     key = (line_idx, symbol.lower())
 
                     # Suggested line replacement & unified diff
@@ -159,7 +182,7 @@ def scan_directory_for_impact(
     max_files: int = 500,
 ) -> CodebaseImpactReport:
     """Recursively scan a local repository directory for high-precision impact candidates."""
-    advisories = [DocUpdateItem.model_validate(x) for x in db.latest(limit=200)]
+    advisories = [DocUpdateItem.model_validate(x) for x in db.latest(limit=500)]
     all_matches: list[FileImpactMatch] = []
     scanned_count = 0
     impacted_files_set = set()
@@ -207,7 +230,7 @@ def scan_directory_for_impact(
                     impacted_files_set.add(file_path)
                     for m in file_matches:
                         advisories_hit.add(f"{m.advisory_title} ({m.urgency})")
-            except Exception:
+            except (OSError, UnicodeError, ValueError):
                 continue
 
         if scanned_count > max_files:

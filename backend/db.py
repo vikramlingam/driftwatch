@@ -2,11 +2,11 @@
 import json
 import re
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
-from .models import DocUpdateItem
 
+from .models import DocUpdateItem
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS doc_updates (
@@ -89,6 +89,11 @@ class Database:
     def initialize(self) -> None:
         with self.connection() as conn:
             conn.executescript(SCHEMA)
+            # Automatic schema migration check for batch_id column
+            cursor = conn.execute("PRAGMA table_info(doc_updates)")
+            columns = [row["name"] for row in cursor.fetchall()]
+            if "batch_id" not in columns and len(columns) > 0:
+                conn.execute("ALTER TABLE doc_updates ADD COLUMN batch_id TEXT")
 
     def upsert_updates(self, items: list[DocUpdateItem]) -> int:
         if not items:
@@ -128,7 +133,7 @@ class Database:
                         item.batch_id,
                     ),
                 )
-            return len(items)
+            return len({item.entry_id for item in items})
 
     def _row(self, row: sqlite3.Row) -> dict:
         result = dict(row)
@@ -241,6 +246,9 @@ class Database:
 
     def save_pending_repair(self, repair: dict) -> None:
         """Persist or update a high-risk watcher repair item."""
+        evidence_report = repair.get("evidence_report") or repair.get("evidence")
+        if hasattr(evidence_report, "model_dump"):
+            evidence_report = evidence_report.model_dump(mode="json")
         with self.connection() as conn:
             conn.execute(
                 """INSERT INTO watcher_pending_repairs (
@@ -258,7 +266,7 @@ class Database:
                     repair.get("proposed_fix", ""),
                     repair.get("status", "PENDING"),
                     repair.get("created_at", ""),
-                    json.dumps(repair.get("evidence", {}))
+                    json.dumps(evidence_report or {}, default=str)
                 )
             )
 
@@ -271,18 +279,25 @@ class Database:
                 item = dict(r)
                 if item.get("evidence_json"):
                     try:
-                        item["evidence"] = json.loads(item["evidence_json"])
-                    except Exception:
-                        item["evidence"] = {}
+                        evidence = json.loads(item["evidence_json"])
+                        item["evidence"] = evidence if evidence else None
+                    except json.JSONDecodeError:
+                        item["evidence"] = None
                 results.append(item)
             return results
 
-    def update_pending_repair_status(self, repair_id: str, status: str) -> bool:
+    def update_pending_repair_status(self, repair_id: str, status: str, evidence_report=None) -> bool:
         """Update status of a pending repair."""
         with self.connection() as conn:
-            cursor = conn.execute(
-                "UPDATE watcher_pending_repairs SET status=? WHERE repair_id=?",
-                (status, repair_id)
-            )
+            if evidence_report is None:
+                cursor = conn.execute(
+                    "UPDATE watcher_pending_repairs SET status=? WHERE repair_id=?",
+                    (status, repair_id),
+                )
+            else:
+                evidence = evidence_report.model_dump(mode="json") if hasattr(evidence_report, "model_dump") else evidence_report
+                cursor = conn.execute(
+                    "UPDATE watcher_pending_repairs SET status=?, evidence_json=? WHERE repair_id=?",
+                    (status, json.dumps(evidence, default=str), repair_id),
+                )
             return cursor.rowcount > 0
-

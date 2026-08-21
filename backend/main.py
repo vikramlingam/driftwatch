@@ -1,12 +1,18 @@
+import sqlite3
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request, Depends
+
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
+
 
 def verify_local_access(request: Request):
     client_ip = request.client.host if request.client else "127.0.0.1"
     if client_ip not in ("127.0.0.1", "::1", "localhost", "testclient"):
-        raise HTTPException(status_code=403, detail="Mutation endpoints are restricted to localhost.")
-from fastapi.responses import PlainTextResponse
+        raise HTTPException(status_code=403, detail="DriftWatch API access is restricted to localhost.")
+
+
 from .audit import audit_project_file, create_code_fix
 from .config import settings
 from .db import Database
@@ -31,6 +37,7 @@ from .models import (
     WatcherConfigRequest,
     WatcherStatusResponse,
 )
+from .policy import validate_public_http_url, validate_public_http_urls
 from .scraper import fix_scraper_with_ai, run_closed_loop_self_healing, run_pipeline
 from .watcher import watcher_instance
 
@@ -45,21 +52,30 @@ async def lifespan(app: FastAPI):
     try:
         custom_targets = db.get_custom_targets()
         for url in custom_targets:
-            settings.add_target_url(url)
-            watcher_instance.add_target(url)
-    except Exception:
-        pass
+            try:
+                safe_url = validate_public_http_url(url)
+            except ValueError:
+                continue
+            settings.add_target_url(safe_url)
+            watcher_instance.add_target(safe_url)
+    except (OSError, sqlite3.Error) as exc:
+        watcher_instance.log(f"Startup note: unable to load persisted targets ({exc!s})")
 
     # Warm up database if empty on fresh install/restart
     if db.count() == 0:
         try:
             await run_pipeline(settings.target_urls)
-        except Exception:
-            pass
+        except (OSError, ValueError, httpx.HTTPError, sqlite3.Error) as exc:
+            watcher_instance.log(f"Startup note: initial feed warm-up failed ({exc!s})")
     yield
 
 
-app = FastAPI(title="DriftWatch", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="DriftWatch",
+    version="1.0.0",
+    lifespan=lifespan,
+    dependencies=[Depends(verify_local_access)],
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -75,8 +91,8 @@ def health() -> dict:
     return {
         "status": "ready",
         "database_records": db.count(),
-        "active_scraper": bool(settings.bright_data_collector_id),
-        "bright_data_configured": bool(settings.bright_data_collector_id),
+        "active_scraper": bool(settings.bright_data_api_token and settings.bright_data_collector_id),
+        "bright_data_configured": bool(settings.bright_data_api_token and settings.bright_data_collector_id),
         "collector_id": settings.bright_data_collector_id,
         "db_path": str(settings.db_path),
         "watcher_running": watcher_instance.is_running,
@@ -103,11 +119,14 @@ def clear_db() -> dict:
 @app.post("/api/scrape", response_model=ScrapePipelineResult)
 async def scrape(request: ScrapeRequest):
     urls = [str(u) for u in request.urls] if request.urls else settings.target_urls
-    return await run_pipeline(
-        urls,
-        collector_id=request.collector_id,
-        force_engine=request.force_engine,
-    )
+    try:
+        return await run_pipeline(
+            urls,
+            collector_id=request.collector_id,
+            force_engine=request.force_engine,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/targets/add", dependencies=[Depends(verify_local_access)])
@@ -115,6 +134,10 @@ async def add_target_feed(payload: dict):
     url = payload.get("url", "").strip()
     if not url:
         raise HTTPException(status_code=400, detail="Missing required 'url' parameter.")
+    try:
+        url = validate_public_http_url(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     settings.add_target_url(url)
     db.add_custom_target(url, ecosystem="Custom")
     watcher_instance.add_target(url)
@@ -129,9 +152,13 @@ async def add_target_feed(payload: dict):
 
 @app.post("/api/self-heal-loop", response_model=SelfHealingLoopResponse, dependencies=[Depends(verify_local_access)])
 async def self_heal_loop(request: SelfHealingLoopRequest):
+    try:
+        target_url = validate_public_http_url(request.target_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await run_closed_loop_self_healing(
         collector_id=request.collector_id,
-        target_url=request.target_url,
+        target_url=target_url,
         issue_description=request.get_description(),
         auto_approve=request.get_auto_approve(),
         re_run_after_approval=request.re_run_after_approval,
@@ -170,7 +197,7 @@ def impact_directory(payload: dict):
 def impact_snippet(payload: dict):
     filename = payload.get("filename", "app.py")
     content = payload.get("content", "")
-    advisories = [DocUpdateItem.model_validate(x) for x in db.latest(limit=200)]
+    advisories = [DocUpdateItem.model_validate(x) for x in db.latest(limit=500)]
     matches = scan_file_for_impacts(filename, content, advisories)
     return {
         "file_path": filename,
@@ -187,6 +214,11 @@ def watcher_status():
 
 @app.post("/api/watcher/start", response_model=WatcherStatusResponse, dependencies=[Depends(verify_local_access)])
 async def watcher_start(config: WatcherConfigRequest):
+    if config.target_urls:
+        try:
+            config.target_urls = validate_public_http_urls(config.target_urls)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     await watcher_instance.start(config)
     return watcher_instance.status()
 
@@ -258,8 +290,8 @@ async def github_scan(request: GitHubScanRequest):
     client = GitHubClient(token=request.github_token or settings.github_token)
     try:
         found_files, default_branch = await client.scan_repo_manifests_and_code(owner, repo, branch=request.branch)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to scan GitHub repository: {str(e)}")
+    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Failed to scan GitHub repository: {e!s}")
 
     advisories = [DocUpdateItem.model_validate(x) for x in db.latest(limit=200)]
     all_matches = []
@@ -298,7 +330,7 @@ async def github_review(request: LLMReviewRequest):
             full_content, _ = await client.fetch_file_content(owner, repo, request.file_path)
             if full_content and len(full_content.strip()) > len(file_content.strip()):
                 file_content = full_content
-        except Exception:
+        except (httpx.HTTPError, OSError, RuntimeError, ValueError):
             pass  # Fall back to provided content
 
     updated_req = request.model_copy(update={"file_content": file_content})
@@ -353,6 +385,5 @@ async def github_create_pr(request: CreatePRRequest):
             custom_branch=request.branch_name,
         )
         return CreatePRResponse.model_validate(res)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to create Pull Request on GitHub: {str(e)}")
-
+    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Failed to create Pull Request on GitHub: {e!s}")

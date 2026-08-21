@@ -60,8 +60,10 @@ This guide walks you through setting up a Bright Data Scraper Studio collector f
    ```ini
    BRIGHT_DATA_API_TOKEN=your_real_api_token_here
    BRIGHT_DATA_COLLECTOR_ID=c_your_real_collector_id_here
-   DATABASE_PATH=data/driftwatch.db
-   FRONTEND_ORIGINS=http://localhost:3000
+   DATABASE_PATH=driftwatch.db
+   DEFAULT_TARGET_URLS=https://docs.stripe.com/changelog
+   FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+   NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
    ```
 3. Replace `your_real_api_token_here` with your Bright Data API token from Step 2.
 4. Replace `c_your_real_collector_id_here` with your Collector ID from Step 3.
@@ -82,7 +84,7 @@ Follow the prompt to paste your API token. This authenticates the local CLI so D
 
 ## Step 6: Test Your Collector with DriftWatch
 
-Once configured, verify your setup from the terminal:
+Once configured, verify your setup from the terminal. Keep `.env` local and never commit the token.
 
 ### 1. Test Data Collection
 ```bash
@@ -92,6 +94,10 @@ You should see:
 - Engine Used: `bright_data_dca`
 - Bright Data Job ID: `job_...`
 - Valid items saved to SQLite
+
+`bright_data_dca` is strict: if the token or collector ID is missing, the command reports a pipeline error rather than silently switching to direct scraping. The default `auto` engine uses Bright Data when configured and direct-scrapes any requested feeds not represented in the DCA response. A run that uses both reports `execution_engine: mixed`.
+
+All scrape targets must be public HTTP(S) URLs. The API rejects credentials in URLs, local/private network addresses, government domains, and military domains.
 
 ### 2. Test the 4-Stage Self-Healing Lifecycle
 ```bash
@@ -103,3 +109,5 @@ This executes:
 3. `bdata scraper approve`
 4. Post-heal verification re-run with `force_engine="bright_data_dca"`
 5. Proof-of-Recovery Evidence Report output with SHA-256 digest
+
+The local API is loopback-only. Run the one-click launcher with `./run.sh`; it starts FastAPI on `127.0.0.1:8000` and Next.js on `localhost:3000`.

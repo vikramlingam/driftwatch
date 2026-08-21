@@ -61,8 +61,8 @@ lsof -ti:3000 | xargs kill -9 2>/dev/null || true
 
 
 # 5. Start Backend Server
-echo -e "${BLUE}[*] Starting FastAPI Backend on http://localhost:8000...${NC}"
-python3 -m uvicorn backend.main:app --port 8000 --host 0.0.0.0 &
+echo -e "${BLUE}[*] Starting FastAPI Backend on http://127.0.0.1:8000...${NC}"
+python3 -m uvicorn backend.main:app --port 8000 --host 127.0.0.1 &
 BACKEND_PID=$!
 
 # Wait briefly for backend to initialize
@@ -71,7 +71,11 @@ sleep 2
 # 6. Start Frontend Server
 echo -e "${BLUE}[*] Starting Next.js Frontend on http://localhost:3000...${NC}"
 cd frontend
-npm run dev -- -p 3000 &
+FRONTEND_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8000}"
+if [ -z "${NEXT_PUBLIC_BACKEND_URL:-}" ] && [ -f "../.env" ]; then
+    FRONTEND_BACKEND_URL="$(awk -F= '$1 == "NEXT_PUBLIC_BACKEND_URL" {sub(/^[^=]*=/, ""); print; exit}' ../.env)"
+fi
+NEXT_PUBLIC_BACKEND_URL="${FRONTEND_BACKEND_URL:-http://localhost:8000}" npm run dev -- -p 3000 &
 FRONTEND_PID=$!
 cd ..
 

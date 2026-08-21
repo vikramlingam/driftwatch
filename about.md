@@ -1,146 +1,76 @@
-# DriftWatch - Project Overview and Architecture
+# DriftWatch — Project Overview
 
-## What Problem Does DriftWatch Solve?
+DriftWatch is a local-first developer intelligence radar for API breaking changes, tool-schema drift, and silent deprecations. It monitors public documentation and changelog feeds, validates structured updates, indexes them in SQLite FTS5, maps advisories to source code, and provides a guarded self-healing workflow for Bright Data collectors.
 
-When companies update their APIs, SDKs, or tools, they publish changelogs on public documentation pages. 
+The complete file-level diagram is in [`architecture.md`](./architecture.md).
 
-Two common problems happen every day:
-1. Development teams do not notice that a method was deprecated or changed until their production application throws an error.
-2. Web scrapers built to monitor these documentation sites break when the vendor updates their website layout or CSS selectors.
+## End-to-End Data Flow
 
-DriftWatch connects these two sides into a working closed loop:
-1. It uses Bright Data Scraper Studio (DCA) to scrape and monitor public changelogs across cloud APIs, AI frameworks, and developer tools.
-2. It parses and indexes every update into a SQLite full-text search engine with strict data schema validation.
-3. If a scraper breaks because a vendor updated their website layout, DriftWatch triggers Bright Data's AI repair CLI (`bdata scraper heal`), approves the update in place (`bdata scraper approve`), and verifies the repaired scraper.
-4. It scans local project repositories to show developers exactly which files and line numbers in their code use the deprecated methods, and outputs a git diff patch to update the code.
+1. The Next.js dashboard or CLI submits one or more public documentation URLs.
+2. `backend/scraper.py` validates targets, optionally triggers the configured Bright Data DCA collector, and runs direct specialized Markdown/HTML parsers for uncovered feeds in `auto` mode.
+3. Raw records are normalized into `DocUpdateItem` objects from `backend/models.py`. Invalid records are quarantined; valid records are written to SQLite with FTS5 search support by `backend/db.py`.
+4. The dashboard reads updates, health, watcher state, audit results, impact matches, and self-healing evidence from `backend/main.py`.
+5. The impact mapper and manifest auditor compare indexed advisories with local or remote source code and produce candidate migration diffs. They do not modify application code automatically.
 
----
+## Execution Engines
 
-## How the System Works (End to End)
-
-### 1. Data Collection via Bright Data DCA API
-
-The backend triggers Bright Data DCA collectors by calling the API endpoint:
-`POST https://api.brightdata.com/dca/trigger?collector=<COLLECTOR_ID>&queue_next=1`
-
-Once triggered, DriftWatch polls for structured records:
-`GET https://api.brightdata.com/dca/dataset?id=<JOB_ID>`
-
-Target sources include:
-- Stripe API changelog
-- OpenAI Python SDK releases
-- Anthropic SDK updates
-- Model Context Protocol (MCP) tool schema specifications
-- AWS Boto3, GCP GenAI, Supabase, FastAPI, LangChain, Ollama, ChromaDB
-
-### 2. Schema Validation and Quarantine Isolation
-
-Every raw record is passed through a strict Pydantic v2 contract model (`DocUpdateItem` in `backend/models.py`). 
-
-Required fields:
-- `entry_id` (string)
-- `ecosystem` (string)
-- `title` (string, 3 to 200 characters)
-- `category` (`BREAKING_CHANGE`, `DEPRECATION`, `FEATURE_UPDATE`, or `TOOL_SCHEMA_CHANGE`)
-- `urgency` (`HIGH`, `MEDIUM`, or `LOW`)
-- `plain_summary` (string)
-- `affected_code` (list of strings representing functions, packages, or methods)
-- `source_url` (valid HTTP/HTTPS URL)
-
-If a vendor's page changed so drastically that malformed records return without required fields, the invalid records are quarantined without polluting the database, and an anomaly event is raised.
-
-### 3. The 4-Stage Closed-Loop Self-Healing Lifecycle
-
-When a collector returns zero records or encounters a layout change, DriftWatch runs a 4-step recovery workflow:
-
-```
-[Step 1] Live Break Diagnosis:
-         Runs a live test against the target documentation URL to verify if the collector fails or returns zero records.
-
-[Step 2] AI Scraper Heal:
-         Calls the Bright Data CLI repair tool:
-         npx @brightdata/cli bdata scraper heal <COLLECTOR_ID> "Documentation layout updated. Extract headings and breaking changes."
-
-[Step 3] Scraper Approval:
-         Calls the Bright Data CLI approval tool:
-         npx @brightdata/cli bdata scraper approve <COLLECTOR_ID>
-
-[Step 4] Strict DCA Re-run Verification:
-         Re-runs collection strictly enforcing force_engine="bright_data_dca". 
-         It checks that the repaired collector successfully collected valid records.
-         It generates a Proof-of-Recovery Report with measured pre/post counts, execution engine verification, and a SHA-256 payload digest.
-```
-
-### 4. Local Code Impact Mapper
-
-Developers can point DriftWatch at any project folder on their machine.
-
-For example, when pointed at a Python project containing:
-```python
-# checkout.py (Line 14)
-charge = stripe.Charge.create(amount=2000, currency="usd")
-```
-
-The impact engine in `backend/impact.py`:
-1. Scans the file AST and tokens against active advisories in SQLite.
-2. Identifies that `stripe.Charge` was deprecated in the latest Stripe API release in favor of `stripe.PaymentIntent`.
-3. Displays the file, line number, plain-English advisory summary, a direct button to Stripe's official docs, and generates a unified git diff:
-
-```diff
---- a/checkout.py
-+++ b/checkout.py
-@@ -14,1 +14,1 @@
--charge = stripe.Charge.create(amount=2000, currency="usd")
-+charge = stripe.PaymentIntent.create(amount=2000, currency="usd")
-```
-
-### 5. Continuous Drift Watcher
-
-The backend includes an asynchronous background watcher (`backend/watcher.py`) that monitors configured documentation feeds on an interval:
-- If a collection passes cleanly, it logs that the feed is healthy.
-- If a collector breaks due to an adaptive layout shift with valid contracts (`LOW_RISK`), it triggers the self-healing workflow automatically.
-- If a high-risk schema failure occurs (`HIGH_RISK`), it queues the repair for human approval.
-
----
-
-## Codebase Map
-
-| File | Role |
+| Mode | Behavior |
 | :--- | :--- |
-| `backend/main.py` | FastAPI application serving search, audits, self-healing endpoints, and watcher controls. |
-| `backend/scraper.py` | Bright Data DCA triggers, authentic documentation parsers, CLI heal/approve runners, and recovery verification. |
-| `backend/impact.py` | Code impact candidate mapper scanning project source files and generating migration diffs. |
-| `backend/watcher.py` | Background monitoring loop and risk classification engine. |
-| `backend/db.py` | SQLite database manager with synchronized FTS5 full-text search triggers. |
-| `backend/models.py` | Pydantic v2 schemas for advisories, audits, recovery evidence reports, and watcher states. |
-| `backend/cli.py` | Terminal interface for `scan`, `heal`, `impact`, `watch`, and `audit` commands. |
-| `frontend/app/page.tsx` | Next.js dark-themed dashboard with Bento Box cards, impact mapper, watcher cockpit, and manifest auditor. |
-| `tests/test_pipeline.py` | 23 automated pytest tests covering database, API endpoints, impact scanning, and self-healing. |
+| `direct` | Uses the built-in public-feed parsers only. |
+| `bright_data_dca` | Requires both Bright Data credentials and a collector ID. It fails explicitly if the DCA run cannot be verified and never falls back silently. |
+| `auto` | Attempts Bright Data when configured, then direct-scrapes requested feeds that were not represented in the DCA response. The result is reported as `mixed` when both engines contribute records. |
 
----
+## Bright Data Self-Healing Loop
 
-## How to Test and Run
+The self-healing path in `backend/scraper.py` is intentionally explicit:
 
-### 1. One-Click Launch (Backend + Frontend)
+```text
+1. Diagnose collector output and measure pre-heal records
+2. Run `npx -p @brightdata/cli bdata scraper heal ...`
+3. Approve with `npx -p @brightdata/cli bdata scraper approve ...`
+4. Re-run with `force_engine="bright_data_dca"`
+5. Validate records and emit a SHA-256 evidence report
+```
+
+The loop can stop with `HEAL_FAILED`, `APPROVAL_REQUIRED`, `RE_RUN_FAILED`, or `HEAL_APPROVED_PENDING_RERUN`. A successful run returns `RECOVERED_AND_VERIFIED` only when the verified engine is Bright Data DCA and valid records were saved.
+
+## Main Backend Modules
+
+| File | Responsibility |
+| :--- | :--- |
+| `backend/main.py` | Local-only FastAPI routes, CORS, startup warm-up, health, scraping, audits, impact, watcher, self-healing, and GitHub routes. |
+| `backend/scraper.py` | Bright Data trigger/polling, direct feed parsers, normalization, quarantine, pipeline telemetry, and self-healing stages. |
+| `backend/watcher.py` | Async recurring monitoring, risk classification, pending repair queue, approval/rejection, and evidence persistence. |
+| `backend/db.py` | SQLite schema, FTS5 index, advisory persistence, custom targets, watcher repairs, and evidence storage. |
+| `backend/models.py` | Strict Pydantic contracts shared by scraper, API, watcher, and UI responses. |
+| `backend/policy.py` | Public HTTP(S) target validation and SSRF/government-domain restrictions. |
+| `backend/impact.py` | Source-file scanning, advisory matching, false-positive filtering, and unified diff previews. |
+| `backend/audit.py` | `requirements.txt`, `package.json`, and `mcp_config.json` audit logic. |
+| `backend/github_client.py` | GitHub repository/file access and branch/PR operations. |
+| `backend/llm_reviewer.py` | OpenRouter review with a rule-based fallback and patch generation. |
+| `backend/cli.py` | `scan`, `heal`, `impact`, `watch`, `audit`, `github-scan`, and `pr` commands. |
+| `backend/config.py` | `.env`-backed settings and target URL resolution. |
+
+## Frontend Modules
+
+`frontend/app/page.tsx` owns application state and API calls. The UI is split into `Navbar`, `LeftSidebar`, `RightSidebar`, `LiveRadarTab`, `ImpactMapperTab`, `WatcherTab`, `ManifestAuditTab`, `GitHubPRTab`, and `Modals`. `frontend/types/index.ts` mirrors the API contracts. `Pagination.tsx`, `globals.css`, and the Next/Tailwind configuration provide shared presentation behavior.
+
+## Safety Boundaries
+
+- Only public HTTP(S) targets are accepted; URLs with credentials, local/private IPs, government domains, and military domains are rejected.
+- The API is intended for local use and is restricted to loopback requests.
+- Invalid scrape records are quarantined instead of being written to SQLite.
+- Impact mapping, manifest auditing, and LLM review produce previews. GitHub PR creation is an explicit user action and requires credentials.
+- The default UI can request the curated feed map in `frontend/types/index.ts`; `.env` can additionally configure backend defaults and custom feeds.
+
+## Running and Verifying
+
 ```bash
 ./run.sh
+pytest -q -W error
+ruff check backend tests
+python3 -m compileall -q backend main.py
+cd frontend && npm run build
 ```
-This single command checks dependencies, starts FastAPI on `http://localhost:8000`, and launches Next.js on `http://localhost:3000`. Press `Ctrl+C` anytime to cleanly shut down both servers.
 
-### 2. Run Automated Unit Tests
-```bash
-pytest -v
-```
-All 23 tests pass deterministically with zero external network dependencies.
-
-### 4. Run Terminal CLI Commands
-```bash
-# Scan code impact on any local directory:
-python3 -m backend.cli impact --path .
-
-# Run the 4-stage self-healing demo:
-python3 -m backend.cli heal --collector-id c_collector_id --url https://docs.stripe.com/changelog
-
-# Start continuous background watcher:
-python3 -m backend.cli watch --interval 60
-```
+The repository includes the Bright Data collector definition, parser, and example structured output under `bright_data/`. Live DCA, GitHub, OpenRouter, and submission-video verification require the relevant external credentials or portal actions.

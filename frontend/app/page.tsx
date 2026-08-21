@@ -137,8 +137,8 @@ export default function Home() {
       const qParam = query.trim() ? `&q=${encodeURIComponent(query.trim())}` : '';
       const ecoParam = ecosystem !== 'All' ? `&ecosystem=${encodeURIComponent(ecosystem)}` : '';
       const endpoint = query.trim()
-        ? `${API}/api/search?${qParam.slice(1)}${ecoParam}&limit=200`
-        : `${API}/api/updates?limit=200${ecoParam}`;
+        ? `${API}/api/search?${qParam.slice(1)}${ecoParam}&limit=500`
+        : `${API}/api/updates?limit=500${ecoParam}`;
 
       const res = await fetch(endpoint);
       if (res.ok) {
@@ -237,7 +237,10 @@ export default function Home() {
 
       if (res.ok) {
         const data = await res.json();
-        setFailedErrors(data.quarantined_errors || []);
+        setFailedErrors([
+          ...(data.pipeline_errors || []),
+          ...(data.quarantined_errors || []),
+        ]);
       }
       await loadData();
     } catch (err) {
@@ -533,8 +536,8 @@ export default function Home() {
       />
 
       {/* Main Studio Body */}
-      <main className="mx-auto w-full max-w-[1920px] px-2.5 sm:px-4 lg:px-5 py-3.5">
-        <div className="flex flex-col lg:flex-row gap-3.5 items-start">
+      <main className="mx-auto w-full max-w-[1920px] px-3 py-4 sm:px-5 lg:px-6">
+        <div className="flex flex-col items-stretch gap-4 lg:flex-row lg:items-start lg:gap-5">
           {/* Left Navigation Sidebar */}
           <LeftSidebar
             theme={theme}
@@ -550,18 +553,48 @@ export default function Home() {
           />
 
           {/* Center Dynamic Content Area */}
-          <section className="flex-1 min-w-0 space-y-4">
+          <section className="min-w-0 flex-1 space-y-4">
+            <div className="flex items-center gap-2 xl:hidden">
+              <label
+                htmlFor="mobile-feed-scope"
+                className={`text-[10px] font-bold uppercase tracking-[0.12em] ${
+                  theme === 'dark' ? 'text-[#64748b]' : 'text-slate-500'
+                }`}
+              >
+                Feed scope
+              </label>
+              <select
+                id="mobile-feed-scope"
+                value={ecosystem}
+                onChange={(event) => setEcosystem(event.target.value)}
+                className={`min-w-0 flex-1 rounded-lg border px-2.5 py-2 text-xs font-medium outline-none ${
+                  theme === 'dark'
+                    ? 'border-[#1e2433] bg-[#11141c] text-slate-200'
+                    : 'border-slate-200 bg-white text-slate-700'
+                }`}
+              >
+                {Object.keys(TARGET_URL_MAP).map((target) => (
+                  <option key={target} value={target}>
+                    {target}
+                  </option>
+                ))}
+              </select>
+              <span className={`shrink-0 font-mono text-[10px] ${theme === 'dark' ? 'text-slate-500' : 'text-slate-400'}`}>
+                {ecosystemCounts[ecosystem] || 0} items
+              </span>
+            </div>
+
             {/* Platform Headline */}
             <div className="flex flex-col gap-1 pb-1">
               <h1
-                className={`text-xl sm:text-2xl font-black tracking-tight ${
+                className={`text-xl font-black tracking-tight sm:text-2xl ${
                   theme === 'dark' ? 'text-white' : 'text-slate-900'
                 }`}
               >
                 Catch breaking API changes before they break your code
               </h1>
               <p
-                className={`text-xs sm:text-sm font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
+                className={`max-w-3xl text-xs font-medium leading-relaxed sm:text-sm ${
                   theme === 'dark' ? 'text-[#94a3b8]' : 'text-slate-600'
                 }`}
               >

@@ -1,9 +1,9 @@
 """OpenRouter Multi-Model LLM Code Review & Migration Patch Synthesizer."""
 import difflib
 import json
-import re
-from typing import Any
+
 import httpx
+
 from .config import settings
 from .models import LLMReviewRequest, LLMReviewResponse
 
@@ -198,5 +198,5 @@ Perform the code review, determine risk level and score, and output the refactor
                 model_used=model_name,
                 execution_mode="openrouter_llm",
             )
-    except Exception:
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
         return generate_fallback_review(request)

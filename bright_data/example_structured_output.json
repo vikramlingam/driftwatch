@@ -1,6 +1,5 @@
 [
   {
-    "_note": "Sample structured record extracted from Stripe API changelog",
     "entry_id": "stripe-2024-04-api-charges-payment-methods",
     "ecosystem": "Stripe",
     "title": "Stripe API 2024-04: Breaking updates to Charges and PaymentIntents",
@@ -19,7 +18,6 @@
     "scraped_at": "2024-04-15T10:05:00Z"
   },
   {
-    "_note": "Sample structured record extracted from Stripe API changelog",
     "entry_id": "stripe-2024-03-sources-api-deprecation",
     "ecosystem": "Stripe",
     "title": "Stripe API 2024-03: Deprecation of Sources API in favor of PaymentMethods",
@@ -37,7 +35,6 @@
     "scraped_at": "2024-03-10T09:35:00Z"
   },
   {
-    "_note": "Sample structured record extracted from ModelContextProtocol changelog",
     "entry_id": "mcp-2024-11-protocol-schema-update",
     "ecosystem": "ModelContextProtocol",
     "title": "Model Context Protocol Tool Schema Protocol Expansion",

@@ -6,13 +6,20 @@ import uuid
 from datetime import UTC, datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
+
 import httpx
 from bs4 import BeautifulSoup
 from pydantic import ValidationError
+
 from .config import settings
 from .db import Database
-from .models import DocUpdateItem, RecoveryEvidenceReport, ScrapePipelineResult, SelfHealingLoopResponse
-
+from .models import (
+    DocUpdateItem,
+    RecoveryEvidenceReport,
+    ScrapePipelineResult,
+    SelfHealingLoopResponse,
+)
+from .policy import validate_public_http_urls
 
 # Excluded non-code artifacts and URL domains
 TOKEN_STOPWORDS = {
@@ -23,6 +30,7 @@ TOKEN_STOPWORDS = {
     "fix", "fixes", "add", "adds", "update", "updates", "support", "supports",
     "tool", "tools", "client", "model", "models", "schema", "schemas", "data",
     "unittest", "pytest", "typing", "sys", "os", "json", "time", "re",
+    "console", "console.error", "console.log", "logger", "logger.error", "logger.warning",
 }
 
 
@@ -59,9 +67,9 @@ def extract_code_tokens(text: str) -> list[str]:
             and not lower.startswith("github")
             and not cleaned.isdigit()
             and "/" not in cleaned  # Exclude paths or URLs
+            and cleaned not in valid_tokens
         ):
-            if cleaned not in valid_tokens:
-                valid_tokens.append(cleaned)
+            valid_tokens.append(cleaned)
 
     return valid_tokens[:10]
 
@@ -527,10 +535,36 @@ async def scrape_raw_markdown_changelog(
         lower_url = url.lower()
         if "crewai" in lower_url:
             ecosystem = "CrewAI & Multi-Agent"
+        elif "litellm" in lower_url:
+            ecosystem = "LiteLLM (AI Gateway)"
+        elif "langgraph" in lower_url:
+            ecosystem = "LangGraph (Stateful)"
+        elif "dspy" in lower_url:
+            ecosystem = "DSPy (Prompt Optimizer)"
+        elif "vllm" in lower_url:
+            ecosystem = "vLLM (Inference Engine)"
+        elif "transformers" in lower_url or "huggingface" in lower_url:
+            ecosystem = "Hugging Face Transformers"
+        elif "instructor" in lower_url:
+            ecosystem = "Instructor (Structured LLM)"
         elif "llama_index" in lower_url or "llama-index" in lower_url:
             ecosystem = "LlamaIndex & RAG"
+        elif "qdrant" in lower_url:
+            ecosystem = "Qdrant Vector Engine"
+        elif "weaviate" in lower_url:
+            ecosystem = "Weaviate Vector DB"
         elif "pinecone" in lower_url:
             ecosystem = "Pinecone Vector"
+        elif "prisma" in lower_url:
+            ecosystem = "Prisma ORM"
+        elif "drizzle" in lower_url:
+            ecosystem = "Drizzle ORM"
+        elif "tailwind" in lower_url:
+            ecosystem = "Tailwind CSS v4"
+        elif "astro" in lower_url:
+            ecosystem = "Astro Web Framework"
+        elif "bun" in lower_url:
+            ecosystem = "Bun Runtime"
         elif "next.js" in lower_url or "vercel/next" in lower_url:
             ecosystem = "Next.js 15 & React 19"
         elif "pydantic" in lower_url:
@@ -660,9 +694,8 @@ async def poll_results(collection_id: str, max_wait: int = 15, interval: int = 3
                 continue
             if isinstance(data, list):
                 return data
-            if isinstance(data, dict):
-                if data.get("status") in {"ready", "completed", "done"}:
-                    return data.get("data", data.get("results", []))
+            if isinstance(data, dict) and data.get("status") in {"ready", "completed", "done"}:
+                return data.get("data", data.get("results", []))
             await asyncio.sleep(interval)
     raise TimeoutError(f"Collection {collection_id} did not finish within {max_wait} seconds")
 
@@ -761,7 +794,7 @@ async def scrape_target_url(url: str, client: httpx.AsyncClient) -> list[dict[st
         return await scrape_chromadb_changelog(url, client)
     elif "mcp" in lower or "modelcontextprotocol" in lower:
         return await scrape_mcp_changelog(url, client)
-    elif url.endswith(".md") or url.endswith(".rst") or "raw.githubusercontent.com" in lower:
+    elif url.endswith((".md", ".rst")) or "raw.githubusercontent.com" in lower:
         return await scrape_raw_markdown_changelog(url, client)
     else:
         return await scrape_custom_html_url(url, client)
@@ -774,80 +807,146 @@ async def run_pipeline(
 ) -> ScrapePipelineResult:
     """Execute scrape pipeline with transparent execution telemetry."""
     started = time.perf_counter()
+    urls = validate_public_http_urls([str(url) for url in urls])
+    if not urls:
+        raise ValueError("At least one public HTTP(S) target URL is required.")
+
     raw_items: list[dict] = []
-    errors: list[str] = []
+    pipeline_errors: list[str] = []
+    quarantined_errors: list[str] = []
     telemetry_logs: list[str] = []
     execution_engine = "direct"
+    dca_succeeded = False
     job_id: str | None = None
     coll_id_used = collector_id or settings.bright_data_collector_id
 
-    # 1. Attempt Bright Data DCA if configured and requested
-    if force_engine != "direct" and settings.bright_data_api_token and coll_id_used:
-        telemetry_logs.append(f"Initiating Bright Data DCA Collector: {coll_id_used}")
-        try:
-            job_id = await trigger_scrape(urls, collector_id=coll_id_used)
-            telemetry_logs.append(f"Bright Data DCA triggered successfully. Job ID: {job_id}")
-            bd_items = await poll_results(job_id, max_wait=8, interval=2)
-            if bd_items and isinstance(bd_items, list):
-                raw_items.extend(bd_items)
-                execution_engine = "bright_data_dca"
-                telemetry_logs.append(f"Bright Data DCA returned {len(bd_items)} raw structured records.")
-        except Exception as exc:
-            telemetry_logs.append(f"Bright Data DCA attempt status: {str(exc)}")
-            if force_engine == "bright_data_dca":
-                errors.append(f"Bright Data DCA collection failed: {str(exc)}")
+    if force_engine not in {"auto", "bright_data_dca", "direct"}:
+        raise ValueError(f"Unsupported scrape engine: {force_engine}")
 
-    # 2. If no DCA items (and force_engine is not strictly bright_data_dca), run upstream live documentation scrapers
-    if not raw_items and force_engine != "bright_data_dca":
+    # 1. Attempt Bright Data DCA if configured and requested. Strict DCA mode
+    # never falls back to direct scraping or silently reports a direct run.
+    if force_engine != "direct":
+        if not settings.bright_data_api_token or not coll_id_used:
+            message = "Bright Data DCA requires both BRIGHT_DATA_API_TOKEN and BRIGHT_DATA_COLLECTOR_ID."
+            telemetry_logs.append(message)
+            if force_engine == "bright_data_dca":
+                execution_engine = "bright_data_dca"
+                pipeline_errors.append(message)
+        else:
+            if force_engine == "bright_data_dca":
+                execution_engine = "bright_data_dca"
+            telemetry_logs.append(f"Initiating Bright Data DCA Collector: {coll_id_used}")
+            try:
+                job_id = await trigger_scrape(urls, collector_id=coll_id_used)
+                telemetry_logs.append(f"Bright Data DCA triggered successfully. Job ID: {job_id}")
+                bd_items = await poll_results(job_id, max_wait=8, interval=2)
+                if bd_items and isinstance(bd_items, list):
+                    raw_items.extend({**item, "_execution_engine": "bright_data_dca"} for item in bd_items if isinstance(item, dict))
+                    dca_succeeded = True
+                    execution_engine = "bright_data_dca"
+                    telemetry_logs.append(f"Bright Data DCA returned {len(bd_items)} raw structured records.")
+                elif force_engine == "bright_data_dca":
+                    pipeline_errors.append(f"Bright Data DCA job {job_id} returned no records.")
+            except (httpx.HTTPError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
+                telemetry_logs.append(f"Bright Data DCA attempt status: {exc!s}")
+                if force_engine == "bright_data_dca":
+                    pipeline_errors.append(f"Bright Data DCA collection failed: {exc!s}")
+
+    # 2. In auto mode, direct-scrape only targets that were not represented in
+    # the DCA response. A custom collector commonly covers one target type;
+    # this prevents a successful Stripe response from hiding other feeds.
+    direct_urls: list[str] = []
+    if force_engine != "bright_data_dca":
+        if not raw_items:
+            direct_urls = urls
+        else:
+            first_url = urls[0]
+            covered_urls = set()
+            for raw in raw_items:
+                source = None
+                if isinstance(raw, dict):
+                    source = raw.get("source_url") or raw.get("url")
+                if source:
+                    covered_urls.add(str(source))
+            for url in urls:
+                if url == first_url and not covered_urls:
+                    continue
+                if not any(_same_target_url(url, covered) for covered in covered_urls):
+                    direct_urls.append(url)
+
+    if direct_urls:
         telemetry_logs.append("Executing upstream live documentation scrapers...")
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 DriftWatch/1.0"}
         async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
-            tasks = [scrape_target_url(u, client) for u in urls]
+            tasks = [scrape_target_url(u, client) for u in direct_urls]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for res, u in zip(results, urls):
+            for res, u in zip(results, direct_urls):
                 if isinstance(res, list):
-                    raw_items.extend(res)
+                    raw_items.extend({**item, "_execution_engine": "direct"} for item in res if isinstance(item, dict))
                     telemetry_logs.append(f"Extracted {len(res)} authentic updates from {u}")
                 elif isinstance(res, Exception):
-                    errors.append(f"Failed to scrape {u}: {str(res)}")
-                    telemetry_logs.append(f"Error scraping {u}: {str(res)}")
+                    pipeline_errors.append(f"Failed to scrape {u}: {res!s}")
+                    telemetry_logs.append(f"Error scraping {u}: {res!s}")
 
-    # 3. Strict Pydantic contract validation & Quarantine isolation
+    if dca_succeeded and direct_urls:
+        execution_engine = "mixed"
+
+    # 3. Strict Pydantic contract validation & quarantine isolation
     valid: list[DocUpdateItem] = []
     batch_id = f"batch_{uuid.uuid4().hex[:12]}"
     for raw in raw_items:
         if not isinstance(raw, dict):
-            errors.append("Item set aside: not a valid dictionary record.")
+            quarantined_errors.append("Item set aside: not a valid dictionary record.")
             continue
         try:
-            normalized = _normalize(raw, urls[0] if urls else "https://docs.stripe.com/changelog", execution_engine)
+            normalized = _normalize(raw, urls[0], str(raw.get("_execution_engine") or execution_engine))
             item = DocUpdateItem.model_validate(normalized)
             item.batch_id = batch_id
             valid.append(item)
         except ValidationError as exc:
             first = exc.errors()[0]
             field = ".".join(str(x) for x in first["loc"])
-            errors.append(f"Contract violation on '{field}': {first['msg']}.")
-        except Exception as exc:
-            errors.append(f"Validation error: {str(exc)}")
+            quarantined_errors.append(f"Contract violation on '{field}': {first['msg']}.")
+        except (TypeError, ValueError) as exc:
+            quarantined_errors.append(f"Validation error: {exc!s}")
 
     # 4. Persist valid records to SQLite FTS5 database
     saved = Database(settings.db_path).upsert_updates(valid)
-    telemetry_logs.append(f"Persisted {saved} verified records to SQLite with FTS5 search. {len(errors)} items quarantined.")
+    telemetry_logs.append(
+        f"Persisted {saved} verified records to SQLite with FTS5 search. "
+        f"{len(quarantined_errors)} items quarantined."
+    )
 
     return ScrapePipelineResult(
         batch_id=batch_id,
         urls_checked=urls,
         total_items_found=len(raw_items),
         valid_items_saved=saved,
-        quarantined_items_count=len(errors),
-        quarantined_errors=errors,
+        quarantined_items_count=len(quarantined_errors),
+        quarantined_errors=quarantined_errors,
+        pipeline_errors=pipeline_errors,
         time_taken_seconds=round(time.perf_counter() - started, 3),
         finished_at=datetime.now(UTC),
         execution_engine=execution_engine,
         bright_data_job_id=job_id,
         collector_id_used=coll_id_used,
         telemetry_logs=telemetry_logs,
+    )
+
+
+def _same_target_url(left: str, right: str) -> bool:
+    """Compare target URLs by scheme, host, and normalized path."""
+
+    left_parsed = urlparse(left)
+    right_parsed = urlparse(right)
+    return (
+        left_parsed.scheme.lower(),
+        left_parsed.netloc.lower(),
+        left_parsed.path.rstrip("/") or "/",
+    ) == (
+        right_parsed.scheme.lower(),
+        right_parsed.netloc.lower(),
+        right_parsed.path.rstrip("/") or "/",
     )
 
 
@@ -868,11 +967,11 @@ async def execute_heal_cli(collector_id: str, issue_description: str) -> dict:
             "error": stderr.decode(errors="replace").strip() if not heal_success else "",
             "execution_time_seconds": round(time.perf_counter() - started, 3),
         }
-    except Exception as exc:
+    except (OSError, asyncio.SubprocessError) as exc:
         return {
             "heal_success": False,
             "proposed_fix": None,
-            "error": f"Heal execution failed: {str(exc)}",
+            "error": f"Heal execution failed: {exc!s}",
             "execution_time_seconds": round(time.perf_counter() - started, 3),
         }
 
@@ -894,11 +993,11 @@ async def execute_approve_cli(collector_id: str) -> dict:
             "error": stderr.decode(errors="replace").strip() if not approve_success else "",
             "execution_time_seconds": round(time.perf_counter() - started, 3),
         }
-    except Exception as exc:
+    except (OSError, asyncio.SubprocessError) as exc:
         return {
             "approved": False,
             "approve_details": None,
-            "error": f"Approve execution failed: {str(exc)}",
+            "error": f"Approve execution failed: {exc!s}",
             "execution_time_seconds": round(time.perf_counter() - started, 3),
         }
 
@@ -937,12 +1036,12 @@ async def diagnose_collector_break(collector_id: str, target_url: str) -> tuple[
                 return False, len(records), f"Collector {collector_id} active. Extracted {len(records)} records."
             except TimeoutError:
                 return True, 0, f"Collector {collector_id} timed out on {target_url}. Selectors unable to resolve target containers."
-            except Exception as exc:
-                return True, 0, f"Collector {collector_id} execution failure: {str(exc)}"
+            except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+                return True, 0, f"Collector {collector_id} execution failure: {exc!s}"
         else:
             return True, 0, f"Collector {collector_id}: No API token or collector unreachable."
-    except Exception as exc:
-        return True, 0, f"Break detected on {collector_id}: {str(exc)}"
+    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+        return True, 0, f"Break detected on {collector_id}: {exc!s}"
 
 
 async def run_closed_loop_self_healing(
@@ -1002,7 +1101,7 @@ async def run_closed_loop_self_healing(
 
     # Step 3: Approval Check (Executes `bdata scraper approve` ONLY if auto_approve is True)
     if not auto_approve:
-        logs.append(f"[Step 3/4] `auto_approve` is False. Scraper heal proposed, approval pending manual review.")
+        logs.append("[Step 3/4] `auto_approve` is False. Scraper heal proposed, approval pending manual review.")
         return SelfHealingLoopResponse(
             collector_id=coll_id,
             target_url=target_url,
@@ -1040,7 +1139,7 @@ async def run_closed_loop_self_healing(
 
     # Step 4: Re-run Verification (Strict Bright Data Verification: force_engine='bright_data_dca')
     if not re_run_after_approval:
-        logs.append(f"[Step 4/4] `re_run_after_approval` is False. Scraper approved without verification re-run.")
+        logs.append("[Step 4/4] `re_run_after_approval` is False. Scraper approved without verification re-run.")
         return SelfHealingLoopResponse(
             collector_id=coll_id,
             target_url=target_url,
@@ -1080,7 +1179,7 @@ async def run_closed_loop_self_healing(
             limit=post_heal_res.valid_items_saved
         )
         if recent_records:
-            recovered_fields = sorted(list(set(k for item in recent_records for k, v in item.items() if v is not None)))
+            recovered_fields = sorted({k for item in recent_records for k, v in item.items() if v is not None})
         else:
             recovered_fields = ["entry_id", "ecosystem", "title", "category", "urgency", "plain_summary", "affected_code", "source_url", "discovered_at"]
 
