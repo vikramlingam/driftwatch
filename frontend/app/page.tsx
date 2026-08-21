@@ -270,7 +270,10 @@ export default function Home() {
 
         // Poll for background scan completion while refreshing data every 5s
         if (jobKey) {
+          let pollInFlight = false;
           const pollScan = setInterval(async () => {
+            if (pollInFlight) return;
+            pollInFlight = true;
             try {
               // Refresh data to show records as they appear
               await loadData();
@@ -279,6 +282,7 @@ export default function Home() {
                 const statusData = await statusRes.json();
                 if (statusData.status === 'done') {
                   clearInterval(pollScan);
+                  window.clearTimeout(safetyTimeout);
                   setLoading(false);
                   setActiveScanStatus({
                     jobKey,
@@ -297,6 +301,7 @@ export default function Home() {
                   await loadData();
                 } else if (statusData.status === 'error') {
                   clearInterval(pollScan);
+                  window.clearTimeout(safetyTimeout);
                   setLoading(false);
                   setActiveScanStatus({
                     jobKey,
@@ -304,16 +309,28 @@ export default function Home() {
                     message: statusData.message || 'Scan failed',
                   });
                   setFailedErrors([statusData.message || 'Scan failed']);
+                } else if (statusData.status === 'unknown') {
+                  clearInterval(pollScan);
+                  window.clearTimeout(safetyTimeout);
+                  setLoading(false);
+                  const message = 'The scan job is no longer available. Check the backend process and start a new scan.';
+                  setActiveScanStatus({ jobKey, status: 'error', message });
+                  setFailedErrors([message]);
                 }
               }
             } catch {
               // ignore poll errors
+            } finally {
+              pollInFlight = false;
             }
           }, 5000);
           // Safety timeout: stop polling after 6 minutes
-          setTimeout(() => {
+          const safetyTimeout = window.setTimeout(() => {
             clearInterval(pollScan);
             setLoading(false);
+            const message = 'The Bright Data scan timed out while waiting for completion.';
+            setActiveScanStatus({ jobKey, status: 'error', message });
+            setFailedErrors([message]);
           }, 360_000);
         } else {
           setLoading(false);

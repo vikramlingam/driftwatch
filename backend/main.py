@@ -31,7 +31,6 @@ from .models import (
     LLMReviewRequest,
     LLMReviewResponse,
     ProjectAuditRequest,
-    ScrapePipelineResult,
     ScrapeRequest,
     SelfHealingLoopRequest,
     SelfHealingLoopResponse,
@@ -128,7 +127,7 @@ async def _run_scan_background(job_key: str, urls: list[str], collector_id: str 
             "message": f"Saved {result.valid_items_saved} records ({result.quarantined_items_count} quarantined)",
             "result": result.model_dump(mode="json"),
         }
-    except Exception as exc:
+    except (httpx.HTTPError, OSError, RuntimeError, TimeoutError, ValueError, TypeError, sqlite3.Error) as exc:
         _background_scan_status[job_key] = {"status": "error", "message": str(exc)}
 
 

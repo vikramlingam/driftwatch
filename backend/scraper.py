@@ -943,6 +943,10 @@ async def run_pipeline(
         else:
             if force_engine == "bright_data_dca":
                 execution_engine = "bright_data_dca"
+            elif force_engine == "auto":
+                # Configured auto mode is still a Bright Data execution even
+                # when the collector returns no records or later fails.
+                execution_engine = "bright_data_dca"
             telemetry_logs.append(f"Initiating Bright Data DCA Collector: {coll_id_used}")
             try:
                 job_id = await trigger_scrape(urls, collector_id=coll_id_used)
@@ -1001,18 +1005,24 @@ async def run_pipeline(
                     print(f"[BD pipeline] After unpacking: {len(raw_items)} raw_items total")
                     if raw_items:
                         execution_engine = "bright_data_dca"
-                        feeds_hit = set(r.get("source_url", "") for r in raw_items if r.get("source_url"))
+                        feeds_hit = {r.get("source_url", "") for r in raw_items if r.get("source_url")}
                         telemetry_logs.append(f"Bright Data DCA returned {len(raw_items)} raw structured records across {len(feeds_hit)}/{len(urls)} feeds.")
                         uncovered = [u for u in urls if not any(u.lower() in str(r.get("source_url", "")).lower() for r in raw_items)]
                         if uncovered:
                             telemetry_logs.append(f"{len(uncovered)} feeds returned 0 records (e.g. domain requires unlocked proxy zone in Bright Data: {', '.join(uncovered[:2])}).")
-                    elif force_engine == "bright_data_dca":
+                    elif force_engine in {"auto", "bright_data_dca"}:
                         pipeline_errors.append(f"Bright Data DCA job {job_id} returned no records.")
                     else:
                         telemetry_logs.append(f"Bright Data DCA job {job_id} returned 0 records for the requested batch.")
+                elif force_engine in {"auto", "bright_data_dca"}:
+                    pipeline_errors.append(f"Bright Data DCA job {job_id} returned no records.")
             except (httpx.HTTPError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
                 telemetry_logs.append(f"Bright Data DCA attempt status: {exc!s}")
-                if force_engine == "bright_data_dca":
+                if force_engine == "bright_data_dca" or (
+                    force_engine == "auto"
+                    and settings.bright_data_api_token
+                    and coll_id_used
+                ):
                     pipeline_errors.append(f"Bright Data DCA collection failed: {exc!s}")
 
     # 2. Bright Data Provenance Guarantee:

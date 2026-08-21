@@ -648,6 +648,38 @@ def test_auto_mode_sends_every_feed_to_bright_data_without_direct_fallback(monke
     assert result.quarantined_items_count == 0
 
 
+def test_configured_dca_empty_result_never_uses_direct_parser(monkeypatch, tmp_path):
+    from backend import scraper
+
+    target_url = "https://docs.stripe.com/changelog"
+    direct_calls = []
+
+    monkeypatch.setattr(scraper.settings, "database_path", str(tmp_path / "test.db"))
+    monkeypatch.setattr(scraper.settings, "bright_data_api_token", "test-token")
+    monkeypatch.setattr(scraper.settings, "bright_data_collector_id", "c_test")
+
+    async def mock_trigger(urls, collector_id=None):
+        return "job-empty"
+
+    async def mock_poll(*args, **kwargs):
+        return []
+
+    async def mock_direct(url, client):
+        direct_calls.append(url)
+        raise AssertionError("configured Bright Data runs must not invoke direct parsers")
+
+    monkeypatch.setattr(scraper, "trigger_scrape", mock_trigger)
+    monkeypatch.setattr(scraper, "poll_results", mock_poll)
+    monkeypatch.setattr(scraper, "scrape_target_url", mock_direct)
+
+    result = asyncio.run(scraper.run_pipeline([target_url]))
+
+    assert direct_calls == []
+    assert result.execution_engine == "bright_data_dca"
+    assert result.valid_items_saved == 0
+    assert result.pipeline_errors == ["Bright Data DCA job job-empty returned no records."]
+
+
 def test_impact_scanner_ignores_target_urls(monkeypatch, tmp_path):
 
     advisory = DocUpdateItem(
