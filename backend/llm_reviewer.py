@@ -160,7 +160,13 @@ Perform the code review, determine risk level and score, and output the refactor
                 return generate_fallback_review(request)
 
             data = resp.json()
-            raw_text = data["choices"][0]["message"]["content"].strip()
+            choices = data.get("choices")
+            if not choices or not isinstance(choices, list) or not choices[0].get("message", {}).get("content"):
+                return generate_fallback_review(request)
+
+            raw_text = str(choices[0]["message"]["content"] or "").strip()
+            if not raw_text:
+                return generate_fallback_review(request)
 
             # Clean JSON markdown fences if present
             clean_json = raw_text

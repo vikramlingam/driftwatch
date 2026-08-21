@@ -27,6 +27,17 @@ import { GitHubPRTab } from '../components/GitHubPRTab';
 import { Modals } from '../components/Modals';
 
 const API = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+const SCRAPE_TIMEOUT_MS = 330_000;
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = SCRAPE_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
 
 export default function Home() {
   // Theme state: dark | light (default: dark)
@@ -219,6 +230,7 @@ export default function Home() {
 
   async function handleScrape(overrideUrls?: string[]) {
     setLoading(true);
+    setFailedErrors([]);
     try {
       let urls: string[] = [];
       if (overrideUrls && overrideUrls.length > 0) {
@@ -237,15 +249,52 @@ export default function Home() {
 
       if (res.ok) {
         const data = await res.json();
-        setFailedErrors([
-          ...(data.pipeline_errors || []),
-          ...(data.quarantined_errors || []),
-        ]);
+        const jobKey = data.job_key;
+
+        // Poll for background scan completion while refreshing data every 5s
+        if (jobKey) {
+          const pollScan = setInterval(async () => {
+            try {
+              // Refresh data to show records as they appear
+              await loadData();
+              const statusRes = await fetch(`${API}/api/scrape/status/${jobKey}`);
+              if (statusRes.ok) {
+                const statusData = await statusRes.json();
+                if (statusData.status === 'done') {
+                  clearInterval(pollScan);
+                  setLoading(false);
+                  setFailedErrors(
+                    statusData.result?.quarantined_errors?.length
+                      ? statusData.result.quarantined_errors
+                      : []
+                  );
+                  await loadData();
+                } else if (statusData.status === 'error') {
+                  clearInterval(pollScan);
+                  setLoading(false);
+                  setFailedErrors([statusData.message || 'Scan failed']);
+                }
+              }
+            } catch {
+              // ignore poll errors
+            }
+          }, 5000);
+          // Safety timeout: stop polling after 6 minutes
+          setTimeout(() => {
+            clearInterval(pollScan);
+            setLoading(false);
+          }, 360_000);
+        } else {
+          setLoading(false);
+        }
+      } else {
+        const detail = await res.text();
+        setFailedErrors([`Scan request failed (${res.status}). ${detail || 'The backend returned no details.'}`]);
+        setLoading(false);
       }
-      await loadData();
     } catch (err) {
+      setFailedErrors(['The scan could not reach the backend. Confirm the FastAPI server is running on port 8000.']);
       console.error('Scrape request failed', err);
-    } finally {
       setLoading(false);
     }
   }

@@ -7,7 +7,7 @@ The complete file-level diagram is in [`architecture.pdf`](./architecture.pdf).
 ## End-to-End Data Flow
 
 1. The Next.js dashboard or CLI submits one or more public documentation URLs.
-2. `backend/scraper.py` validates targets, optionally triggers the configured Bright Data DCA collector, and runs direct specialized Markdown/HTML parsers for uncovered feeds in `auto` mode.
+2. `backend/scraper.py` validates targets, submits the complete URL batch to the configured Bright Data DCA collector, and only uses direct specialized Markdown/HTML parsers when `direct` is explicitly selected or DCA is not configured for local development.
 3. Raw records are normalized into `DocUpdateItem` objects from `backend/models.py`. Invalid records are quarantined; valid records are written to SQLite with FTS5 search support by `backend/db.py`.
 4. The dashboard reads updates, health, watcher state, audit results, impact matches, and self-healing evidence from `backend/main.py`.
 5. The impact mapper and manifest auditor compare indexed advisories with local or remote source code and produce candidate migration diffs. They do not modify application code automatically.
@@ -18,7 +18,7 @@ The complete file-level diagram is in [`architecture.pdf`](./architecture.pdf).
 | :--- | :--- |
 | `direct` | Uses the built-in public-feed parsers only. |
 | `bright_data_dca` | Requires both Bright Data credentials and a collector ID. It fails explicitly if the DCA run cannot be verified and never falls back silently. |
-| `auto` | Attempts Bright Data when configured, then direct-scrapes requested feeds that were not represented in the DCA response. The result is reported as `mixed` when both engines contribute records. |
+| `auto` | Sends every requested URL to Bright Data when both DCA credentials are configured. It does not direct-scrape gaps after a DCA run. Without DCA configuration, it uses local parsers as a development fallback. |
 
 ## Bright Data Self-Healing Loop
 
@@ -38,7 +38,7 @@ The loop can stop with `HEAL_FAILED`, `APPROVAL_REQUIRED`, `RE_RUN_FAILED`, or `
 
 | File | Responsibility |
 | :--- | :--- |
-| `backend/main.py` | Local-only FastAPI routes, CORS, startup warm-up, health, scraping, audits, impact, watcher, self-healing, and GitHub routes. |
+| `backend/main.py` | Local-only FastAPI routes, CORS, health, explicit scraping, audits, impact, watcher, self-healing, and GitHub routes. |
 | `backend/scraper.py` | Bright Data trigger/polling, direct feed parsers, normalization, quarantine, pipeline telemetry, and self-healing stages. |
 | `backend/watcher.py` | Async recurring monitoring, risk classification, pending repair queue, approval/rejection, and evidence persistence. |
 | `backend/db.py` | SQLite schema, FTS5 index, advisory persistence, custom targets, watcher repairs, and evidence storage. |
@@ -73,4 +73,4 @@ python3 -m compileall -q backend main.py
 cd frontend && npm run build
 ```
 
-The repository includes the Bright Data collector definition, parser, and example structured output under `bright_data/`. Live DCA, GitHub, OpenRouter, and submission-video verification require the relevant external credentials or portal actions.
+The repository includes the Bright Data collector definition, interaction script, parser, and example structured output under `bright_data/`. Live DCA, GitHub, OpenRouter, and submission-video verification require the relevant external credentials or portal actions.

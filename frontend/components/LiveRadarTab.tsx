@@ -2,6 +2,7 @@ import React from 'react';
 import { Search, X, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { DocUpdate } from '../types';
 import { Pagination } from './Pagination';
+import { ScraperStudioRadarScanner } from './ScraperStudioRadarScanner';
 
 interface LiveRadarTabProps {
   theme: 'dark' | 'light';
@@ -95,6 +96,14 @@ export const LiveRadarTab: React.FC<LiveRadarTabProps> = ({
           ))}
         </div>
       </div>
+
+      {/* Live Radar Scraper Studio Visual Animation (shown during active scan) */}
+      {loading && (
+        <ScraperStudioRadarScanner
+          theme={theme}
+          emptyState={filteredUpdates.length === 0}
+        />
+      )}
 
       {/* Updates Feed — Bento Box Cards */}
       <div className="space-y-4">

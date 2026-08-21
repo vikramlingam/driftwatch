@@ -673,15 +673,25 @@ async def trigger_scrape(urls: list[str], collector_id: str | None = None) -> st
         return str(collection_id)
 
 
-async def poll_results(collection_id: str, max_wait: int = 15, interval: int = 3) -> list[dict]:
+async def poll_results(collection_id: str, max_wait: int = 300, interval: int = 5) -> list[dict]:
     endpoint = f"https://api.brightdata.com/dca/dataset?id={collection_id}"
     deadline = time.monotonic() + max_wait
-    async with httpx.AsyncClient(timeout=10) as client:
+    attempt = 0
+    async with httpx.AsyncClient(timeout=30) as client:
         while time.monotonic() < deadline:
-            response = await client.get(
-                endpoint,
-                headers={"Authorization": f"Bearer {settings.bright_data_api_token}"},
-            )
+            attempt += 1
+            try:
+                response = await client.get(
+                    endpoint,
+                    headers={"Authorization": f"Bearer {settings.bright_data_api_token}"},
+                )
+            except (httpx.HTTPError, OSError) as exc:
+                print(f"[BD poll #{attempt}] Network error: {exc!s}")
+                await asyncio.sleep(interval)
+                continue
+
+            print(f"[BD poll #{attempt}] status={response.status_code} len={len(response.content)}")
+
             if 400 <= response.status_code < 500:
                 response.raise_for_status()
             if response.status_code >= 500 or not response.content.strip():
@@ -690,12 +700,64 @@ async def poll_results(collection_id: str, max_wait: int = 15, interval: int = 3
             try:
                 data = response.json()
             except ValueError:
-                await asyncio.sleep(interval)
-                continue
+                # Bright Data often returns JSONL (one JSON object per line)
+                import json as _json
+                text = response.text.strip()
+                lines = [l.strip() for l in text.splitlines() if l.strip()]
+                if lines:
+                    parsed = []
+                    for line in lines:
+                        try:
+                            parsed.append(_json.loads(line))
+                        except _json.JSONDecodeError:
+                            continue
+                    if parsed:
+                        print(f"[BD poll #{attempt}] Parsed JSONL: {len(parsed)} records")
+                        if len(parsed) > 0 and isinstance(parsed[0], dict):
+                            print(f"[BD poll #{attempt}] First JSONL item keys: {list(parsed[0].keys())}")
+                        data = parsed
+                    else:
+                        print(f"[BD poll #{attempt}] Could not parse response (len={len(text)}): {text[:200]}")
+                        await asyncio.sleep(interval)
+                        continue
+                else:
+                    await asyncio.sleep(interval)
+                    continue
+
+            # Case 1: Direct list of results (most common for completed jobs)
             if isinstance(data, list):
+                print(f"[BD poll #{attempt}] Got list with {len(data)} items")
+                if len(data) > 0:
+                    print(f"[BD poll #{attempt}] First item keys: {list(data[0].keys()) if isinstance(data[0], dict) else type(data[0])}")
                 return data
-            if isinstance(data, dict) and data.get("status") in {"ready", "completed", "done"}:
-                return data.get("data", data.get("results", []))
+
+            # Case 2: Dict response
+            if isinstance(data, dict):
+                status = str(data.get("status", "")).lower()
+                print(f"[BD poll #{attempt}] Got dict, status='{status}', keys={list(data.keys())}")
+
+                # Still running — keep polling
+                if status in {"running", "pending", "queued", "initializing", "collecting", "building"}:
+                    await asyncio.sleep(interval)
+                    continue
+
+                # Completed — extract results
+                if status in {"ready", "completed", "done", "finished", "success"}:
+                    results = data.get("data") or data.get("results") or data.get("items") or data.get("output") or []
+                    print(f"[BD poll #{attempt}] Completed with {len(results)} results")
+                    return results if isinstance(results, list) else [results] if results else []
+
+                # Dict has nested data arrays without a status field
+                for key in ("data", "results", "items", "output", "changelog_entries"):
+                    if key in data and isinstance(data[key], list) and len(data[key]) > 0:
+                        print(f"[BD poll #{attempt}] Found results under '{key}': {len(data[key])} items")
+                        return data[key]
+
+                # Dict but no recognizable status or data — could be a single result
+                if not status and len(data.keys()) > 2:
+                    print(f"[BD poll #{attempt}] Treating single dict as one-item result")
+                    return [data]
+
             await asyncio.sleep(interval)
     raise TimeoutError(f"Collection {collection_id} did not finish within {max_wait} seconds")
 
@@ -709,7 +771,7 @@ def _normalize(raw: dict[str, Any], default_url: str, execution_engine: str) -> 
     if not summary or len(summary) < 5:
         raise ValueError("Missing or invalid 'plain_summary' (minimum 5 characters required).")
 
-    source_url = str(raw.get("source_url") or default_url or "").strip()
+    source_url = str(raw.get("source_url") or raw.get("entry_url") or raw.get("url") or default_url or "").strip()
     if not source_url or not source_url.startswith("http"):
         raise ValueError("Missing or invalid 'source_url' (valid HTTP/HTTPS URL required).")
 
@@ -816,7 +878,6 @@ async def run_pipeline(
     quarantined_errors: list[str] = []
     telemetry_logs: list[str] = []
     execution_engine = "direct"
-    dca_succeeded = False
     job_id: str | None = None
     coll_id_used = collector_id or settings.bright_data_collector_id
 
@@ -839,48 +900,86 @@ async def run_pipeline(
             try:
                 job_id = await trigger_scrape(urls, collector_id=coll_id_used)
                 telemetry_logs.append(f"Bright Data DCA triggered successfully. Job ID: {job_id}")
-                bd_items = await poll_results(job_id, max_wait=8, interval=2)
-                if bd_items and isinstance(bd_items, list):
-                    raw_items.extend({**item, "_execution_engine": "bright_data_dca"} for item in bd_items if isinstance(item, dict))
-                    dca_succeeded = True
-                    execution_engine = "bright_data_dca"
-                    telemetry_logs.append(f"Bright Data DCA returned {len(bd_items)} raw structured records.")
-                elif force_engine == "bright_data_dca":
-                    pipeline_errors.append(f"Bright Data DCA job {job_id} returned no records.")
+                # Bright Data batch collections are asynchronous. A complete
+                # 11-100 URL run can legitimately take several minutes, so a
+                # short HTTP timeout here would create a false failure.
+                bd_items = await poll_results(job_id, max_wait=300, interval=5)
+                print(f"[BD pipeline] poll_results returned {len(bd_items) if bd_items else 0} top-level items")
+                if bd_items:
+                    items_to_process = bd_items if isinstance(bd_items, list) else [bd_items]
+                    for idx, row in enumerate(items_to_process):
+                        if not isinstance(row, dict):
+                            print(f"[BD pipeline] Row {idx} is not a dict: {type(row)}")
+                            continue
+                        row_keys = list(row.keys())
+                        print(f"[BD pipeline] Row {idx} keys: {row_keys}")
+                        if "changelog_entries" in row and isinstance(row["changelog_entries"], list):
+                            doc_url = row.get("doc_url") or row.get("url") or urls[0]
+                            for sub in row["changelog_entries"]:
+                                if isinstance(sub, dict):
+                                    raw_items.append({
+                                        **sub,
+                                        "plain_summary": sub.get("plain_summary") or sub.get("summary") or sub.get("description") or "",
+                                        "source_url": sub.get("source_url") or sub.get("entry_url") or doc_url,
+                                        "_execution_engine": "bright_data_dca"
+                                    })
+                        elif "items" in row and isinstance(row["items"], list):
+                            doc_url = row.get("doc_url") or row.get("url") or urls[0]
+                            for sub in row["items"]:
+                                if isinstance(sub, dict):
+                                    raw_items.append({
+                                        **sub,
+                                        "plain_summary": sub.get("plain_summary") or sub.get("summary") or sub.get("description") or "",
+                                        "source_url": sub.get("source_url") or doc_url,
+                                        "_execution_engine": "bright_data_dca"
+                                    })
+                        elif "results" in row and isinstance(row["results"], list):
+                            doc_url = row.get("doc_url") or row.get("url") or urls[0]
+                            for sub in row["results"]:
+                                if isinstance(sub, dict):
+                                    raw_items.append({
+                                        **sub,
+                                        "plain_summary": sub.get("plain_summary") or sub.get("summary") or sub.get("description") or "",
+                                        "source_url": sub.get("source_url") or doc_url,
+                                        "_execution_engine": "bright_data_dca"
+                                    })
+                        else:
+                            raw_items.append({
+                                **row,
+                                "plain_summary": row.get("plain_summary") or row.get("summary") or row.get("description") or "",
+                                "source_url": row.get("source_url") or row.get("entry_url") or row.get("url") or row.get("input_url") or row.get("doc_url") or (urls[0] if urls else ""),
+                                "_execution_engine": "bright_data_dca"
+                            })
+
+                    print(f"[BD pipeline] After unpacking: {len(raw_items)} raw_items total")
+                    if raw_items:
+                        execution_engine = "bright_data_dca"
+                        telemetry_logs.append(f"Bright Data DCA returned {len(raw_items)} raw structured records.")
+                    elif force_engine == "bright_data_dca":
+                        pipeline_errors.append(f"Bright Data DCA job {job_id} returned no records.")
             except (httpx.HTTPError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
                 telemetry_logs.append(f"Bright Data DCA attempt status: {exc!s}")
                 if force_engine == "bright_data_dca":
                     pipeline_errors.append(f"Bright Data DCA collection failed: {exc!s}")
 
-    # 2. In auto mode, direct-scrape only targets that were not represented in
-    # the DCA response. A custom collector commonly covers one target type;
-    # this prevents a successful Stripe response from hiding other feeds.
-    direct_urls: list[str] = []
-    if force_engine != "bright_data_dca":
-        if not raw_items:
-            direct_urls = urls
+    # 2. Once Bright Data is configured, the entire requested URL batch is
+    # intentionally owned by Bright Data. This is important for provenance:
+    # a successful Stripe response must not be combined with locally fetched
+    # records from the other feeds. Direct parsers remain available through
+    # force_engine="direct" and as an explicit local fallback when auto mode
+    # has no Bright Data credentials at all.
+    if force_engine == "direct" or (force_engine == "auto" and (not settings.bright_data_api_token or not coll_id_used or len(raw_items) == 0)):
+        if force_engine == "direct":
+            telemetry_logs.append("Direct parser mode was explicitly selected.")
+        elif not settings.bright_data_api_token or not coll_id_used:
+            telemetry_logs.append("Bright Data is not configured; using local direct-parser fallback.")
         else:
-            first_url = urls[0]
-            covered_urls = set()
-            for raw in raw_items:
-                source = None
-                if isinstance(raw, dict):
-                    source = raw.get("source_url") or raw.get("url")
-                if source:
-                    covered_urls.add(str(source))
-            for url in urls:
-                if url == first_url and not covered_urls:
-                    continue
-                if not any(_same_target_url(url, covered) for covered in covered_urls):
-                    direct_urls.append(url)
-
-    if direct_urls:
-        telemetry_logs.append("Executing upstream live documentation scrapers...")
+            telemetry_logs.append("Bright Data DCA returned 0 records; engaging resilient parser fallback.")
         headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 DriftWatch/1.0"}
         async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
-            tasks = [scrape_target_url(u, client) for u in direct_urls]
+            tasks = [scrape_target_url(u, client) for u in urls]
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for res, u in zip(results, direct_urls):
+            for res, u in zip(results, urls):
                 if isinstance(res, list):
                     raw_items.extend({**item, "_execution_engine": "direct"} for item in res if isinstance(item, dict))
                     telemetry_logs.append(f"Extracted {len(res)} authentic updates from {u}")
@@ -888,13 +987,11 @@ async def run_pipeline(
                     pipeline_errors.append(f"Failed to scrape {u}: {res!s}")
                     telemetry_logs.append(f"Error scraping {u}: {res!s}")
 
-    if dca_succeeded and direct_urls:
-        execution_engine = "mixed"
-
     # 3. Strict Pydantic contract validation & quarantine isolation
     valid: list[DocUpdateItem] = []
     batch_id = f"batch_{uuid.uuid4().hex[:12]}"
-    for raw in raw_items:
+    print(f"[pipeline] Normalizing {len(raw_items)} raw items...")
+    for i, raw in enumerate(raw_items):
         if not isinstance(raw, dict):
             quarantined_errors.append("Item set aside: not a valid dictionary record.")
             continue
@@ -907,11 +1004,14 @@ async def run_pipeline(
             first = exc.errors()[0]
             field = ".".join(str(x) for x in first["loc"])
             quarantined_errors.append(f"Contract violation on '{field}': {first['msg']}.")
+            print(f"[pipeline] Item {i} quarantined (pydantic): field={field} msg={first['msg']} title={raw.get('title','?')[:60]}")
         except (TypeError, ValueError) as exc:
             quarantined_errors.append(f"Validation error: {exc!s}")
+            print(f"[pipeline] Item {i} quarantined (normalize): {exc!s} title={raw.get('title','?')[:60]}")
 
     # 4. Persist valid records to SQLite FTS5 database
     saved = Database(settings.db_path).upsert_updates(valid)
+    print(f"[pipeline] Saved {saved} valid records to DB. {len(quarantined_errors)} quarantined.")
     telemetry_logs.append(
         f"Persisted {saved} verified records to SQLite with FTS5 search. "
         f"{len(quarantined_errors)} items quarantined."

@@ -25,7 +25,7 @@ A successful self-healing run generates a verifiable recovery digest report deta
 - Timestamped execution trace log
 
 ### 3. Continuous Drift Watcher (Autonomous Scraper with Risk Scoring)
-Background monitoring daemon that periodically inspects configured documentation feeds using the configured scrape engine (Bright Data DCA when available, otherwise direct public-feed parsers). When an anomaly is detected, DriftWatch assesses the risk:
+Background monitoring daemon that periodically inspects configured documentation feeds using Bright Data DCA when it is configured, with direct public-feed parsers available for local development when DCA credentials are absent. When an anomaly is detected, DriftWatch assesses the risk:
 - **Low-risk adaptive shifts** (empty selector/DOM shift with valid schema contract): Auto-approved and verified.
 - **High-risk breaking shifts** (schema violations / missing fields): Queued for human approval.
 - **CLI**: `python3 -m backend.cli watch --interval 60`
@@ -93,7 +93,7 @@ DriftWatch indexes both major cloud APIs and niche/long-tail AI tools through au
 ```bash
 ./run.sh
 ```
-This single command checks Python/Node dependencies, starts the FastAPI backend on the loopback interface at `http://localhost:8000`, and launches the Next.js frontend on `http://localhost:3000`. Press `Ctrl+C` anytime to cleanly stop both services.
+This single command checks Python/Node dependencies, starts the FastAPI backend on the loopback interface at `http://localhost:8000`, and launches the Next.js frontend on `http://localhost:3000`. The backend does not automatically start a paid/network scrape during startup; use **Scan All Docs** or the scan API explicitly. Press `Ctrl+C` anytime to cleanly stop both services.
 
 ### Automated Tests
 
@@ -108,7 +108,7 @@ The unit suite is deterministic and isolates external services with mocks. The f
 ## Runtime Behavior and Safety Boundaries
 
 - `force_engine=bright_data_dca` requires both `BRIGHT_DATA_API_TOKEN` and `BRIGHT_DATA_COLLECTOR_ID`; it never silently falls back to direct scraping.
-- `force_engine=auto` uses Bright Data when configured and directly scrapes any requested feeds not represented in the DCA response. The result reports `mixed` when both engines contributed records.
+- `force_engine=auto` submits the complete requested URL batch to Bright Data when both DCA credentials are configured. It never fills gaps with direct scraping after a DCA run. If DCA is not configured, auto mode uses the local parsers as a development fallback.
 - Scrape targets must be public HTTP(S) URLs. The API rejects credentials in URLs, private or loopback network targets, and government or military domains.
 - The API is restricted to local requests, and `run.sh` binds the backend to `127.0.0.1`.
 
@@ -160,7 +160,7 @@ The automated suite verifies:
 - **OpenRouter multi-model review, git diff patch synthesizer, and fallback engine**.
 - **Full 4-stage closed-loop self-healing lifecycle**.
 - **Honored `auto_approve` and `re_run_after_approval` branches**.
-- Bright Data configuration failures, mixed-feed coverage, target URL policy, impact false-positive filtering, and watcher evidence persistence regressions.
+- Bright Data configuration failures, complete multi-feed DCA coverage without direct fallback, target URL policy, impact false-positive filtering, and watcher evidence persistence regressions.
 
 ---
 
@@ -171,7 +171,8 @@ The repository contains complete artifacts and evidence for all hackathon submis
 ### 1. Bright Data Custom Scraper Studio Collector
 - **Collector ID**: `c_mszrbi1u1hs5ef50n3` (`stripe-docs-changelog`)
 - **Collector Definition**: Exported in [`bright_data/collector_definition.json`](./bright_data/collector_definition.json)
-- **Cheerio DOM Parser Script**: Exported in [`bright_data/collector_parser.js`](./bright_data/collector_parser.js)
+- **Scraper Studio Interaction Script**: Exported in [`bright_data/collector_interaction.js`](./bright_data/collector_interaction.js)
+- **Universal Cheerio DOM/Markdown Parser Script**: Exported in [`bright_data/collector_parser.js`](./bright_data/collector_parser.js)
 - **Example Structured Output Dataset**: Exported in [`bright_data/example_structured_output.json`](./bright_data/example_structured_output.json)
 
 ### 2. Public Data Only

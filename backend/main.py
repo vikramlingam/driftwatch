@@ -1,4 +1,5 @@
 import sqlite3
+import uuid
 from contextlib import asynccontextmanager
 
 import httpx
@@ -61,12 +62,10 @@ async def lifespan(app: FastAPI):
     except (OSError, sqlite3.Error) as exc:
         watcher_instance.log(f"Startup note: unable to load persisted targets ({exc!s})")
 
-    # Warm up database if empty on fresh install/restart
-    if db.count() == 0:
-        try:
-            await run_pipeline(settings.target_urls)
-        except (OSError, ValueError, httpx.HTTPError, sqlite3.Error) as exc:
-            watcher_instance.log(f"Startup note: initial feed warm-up failed ({exc!s})")
+    # Do not start a paid/network collection during application startup. A
+    # multi-URL Bright Data batch can take several minutes and would block the
+    # API lifespan, making the dashboard appear to hang after the database is
+    # cleared. Collections are started explicitly through /api/scrape.
     yield
 
 
@@ -116,17 +115,57 @@ def clear_db() -> dict:
     }
 
 
-@app.post("/api/scrape", response_model=ScrapePipelineResult)
+_background_scan_status: dict[str, dict] = {}
+
+
+async def _run_scan_background(job_key: str, urls: list[str], collector_id: str | None, force_engine: str):
+    """Run the scrape pipeline in the background and store the result."""
+    _background_scan_status[job_key] = {"status": "running", "message": "Scan in progress..."}
+    try:
+        result = await run_pipeline(urls, collector_id=collector_id, force_engine=force_engine)
+        _background_scan_status[job_key] = {
+            "status": "done",
+            "message": f"Saved {result.valid_items_saved} records ({result.quarantined_items_count} quarantined)",
+            "result": result.model_dump(mode="json"),
+        }
+    except Exception as exc:
+        _background_scan_status[job_key] = {"status": "error", "message": str(exc)}
+
+
+@app.post("/api/scrape")
 async def scrape(request: ScrapeRequest):
+    import asyncio
+
     urls = [str(u) for u in request.urls] if request.urls else settings.target_urls
     try:
-        return await run_pipeline(
-            urls,
-            collector_id=request.collector_id,
-            force_engine=request.force_engine,
-        )
+        from .policy import validate_public_http_urls as _val
+        urls = _val(urls)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    job_key = f"scan_{uuid.uuid4().hex[:8]}"
+    asyncio.create_task(_run_scan_background(job_key, urls, request.collector_id, request.force_engine))
+    return {
+        "batch_id": job_key,
+        "urls_checked": urls,
+        "total_items_found": 0,
+        "valid_items_saved": 0,
+        "quarantined_items_count": 0,
+        "quarantined_errors": [],
+        "pipeline_errors": [],
+        "time_taken_seconds": 0,
+        "execution_engine": "bright_data_dca",
+        "bright_data_job_id": None,
+        "collector_id_used": request.collector_id or settings.bright_data_collector_id,
+        "telemetry_logs": [f"Scan launched in background. Job: {job_key}. Records will appear as they are saved."],
+        "status": "scanning",
+        "job_key": job_key,
+    }
+
+
+@app.get("/api/scrape/status/{job_key}")
+def scrape_status(job_key: str):
+    return _background_scan_status.get(job_key, {"status": "unknown", "message": "Job not found"})
 
 
 @app.post("/api/targets/add", dependencies=[Depends(verify_local_access)])

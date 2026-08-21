@@ -596,18 +596,20 @@ def test_forced_bright_data_mode_reports_missing_configuration(monkeypatch, tmp_
     assert "BRIGHT_DATA_API_TOKEN" in result.pipeline_errors[0]
 
 
-def test_auto_mode_scrapes_uncovered_feeds_after_dca(monkeypatch, tmp_path):
+def test_auto_mode_sends_every_feed_to_bright_data_without_direct_fallback(monkeypatch, tmp_path):
     from backend import scraper
 
     stripe_url = "https://docs.stripe.com/changelog"
     openai_url = "https://raw.githubusercontent.com/openai/openai-python/main/CHANGELOG.md"
-    calls = []
+    triggered_urls = []
+    direct_calls = []
 
     monkeypatch.setattr(scraper.settings, "database_path", str(tmp_path / "test.db"))
     monkeypatch.setattr(scraper.settings, "bright_data_api_token", "test-token")
     monkeypatch.setattr(scraper.settings, "bright_data_collector_id", "c_test")
 
     async def mock_trigger(urls, collector_id=None):
+        triggered_urls.extend(urls)
         return "job-1"
 
     async def mock_poll(*args, **kwargs):
@@ -619,19 +621,19 @@ def test_auto_mode_scrapes_uncovered_feeds_after_dca(monkeypatch, tmp_path):
             "urgency": "LOW",
             "plain_summary": "A valid Bright Data record.",
             "source_url": stripe_url,
-        }]
-
-    async def mock_direct(url, client):
-        calls.append(url)
-        return [{
-            "entry_id": "direct-openai",
-            "title": "OpenAI direct update",
+        }, {
+            "entry_id": "dca-openai",
+            "title": "OpenAI DCA update",
             "ecosystem": "OpenAI",
             "category": "FEATURE_UPDATE",
             "urgency": "LOW",
-            "plain_summary": "A valid direct record.",
-            "source_url": url,
+            "plain_summary": "A second valid Bright Data record.",
+            "source_url": openai_url,
         }]
+
+    async def mock_direct(url, client):
+        direct_calls.append(url)
+        raise AssertionError("configured Bright Data runs must not invoke direct parsers")
 
     monkeypatch.setattr(scraper, "trigger_scrape", mock_trigger)
     monkeypatch.setattr(scraper, "poll_results", mock_poll)
@@ -639,8 +641,9 @@ def test_auto_mode_scrapes_uncovered_feeds_after_dca(monkeypatch, tmp_path):
 
     result = asyncio.run(scraper.run_pipeline([stripe_url, openai_url]))
 
-    assert calls == [openai_url]
-    assert result.execution_engine == "mixed"
+    assert triggered_urls == [stripe_url, openai_url]
+    assert direct_calls == []
+    assert result.execution_engine == "bright_data_dca"
     assert result.valid_items_saved == 2
     assert result.quarantined_items_count == 0
 
