@@ -4,7 +4,7 @@
 
 Drift Watch is a developer intelligence radar for API breaking changes, tool schema drift, and silent deprecations across developer ecosystems. It collects updates via **Bright Data Scraper Studio (DCA)**, executes an authentic **4-stage closed-loop self-healing lifecycle** (`bdata scraper heal` + `bdata scraper approve`), strictly validates schema contracts with Pydantic v2 quarantine isolation, and maps upstream impact candidates directly into local codebases.
 
-The complete file-level architecture is documented in [`architecture.md`](./architecture.md), including every backend, frontend, test, launcher, and Bright Data source file.
+The complete file-level architecture is documented in [`architecture.pdf`](./architecture.pdf), including every backend, frontend, test, launcher, and Bright Data source file.
 
 ## Core Capabilities
 

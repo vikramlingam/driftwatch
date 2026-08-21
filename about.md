@@ -2,7 +2,7 @@
 
 DriftWatch is a local-first developer intelligence radar for API breaking changes, tool-schema drift, and silent deprecations. It monitors public documentation and changelog feeds, validates structured updates, indexes them in SQLite FTS5, maps advisories to source code, and provides a guarded self-healing workflow for Bright Data collectors.
 
-The complete file-level diagram is in [`architecture.md`](./architecture.md).
+The complete file-level diagram is in [`architecture.pdf`](./architecture.pdf).
 
 ## End-to-End Data Flow
 
