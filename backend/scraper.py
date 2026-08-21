@@ -762,6 +762,54 @@ async def poll_results(collection_id: str, max_wait: int = 300, interval: int = 
     raise TimeoutError(f"Collection {collection_id} did not finish within {max_wait} seconds")
 
 
+# URL path fragments → ecosystem label (must match frontend TARGET_URL_MAP keys)
+_URL_ECOSYSTEM_MAP: list[tuple[str, str]] = [
+    ("stripe.com", "Stripe"),
+    ("openai/openai-python", "OpenAI"),
+    ("anthropics/anthropic-sdk", "Anthropic"),
+    ("langchain-ai/langchain", "LangChain & Agents"),
+    ("langchain-ai/langgraph", "LangGraph (Stateful)"),
+    ("crewAIInc/crewAI", "CrewAI & Multi-Agent"),
+    ("BerriAI/litellm", "LiteLLM (AI Gateway)"),
+    ("stanfordnlp/dspy", "DSPy (Prompt Optimizer)"),
+    ("vllm-project/vllm", "vLLM (Inference Engine)"),
+    ("huggingface/transformers", "Hugging Face Transformers"),
+    ("jxnl/instructor", "Instructor (Structured LLM)"),
+    ("run-llama/llama_index", "LlamaIndex & RAG"),
+    ("ollama/ollama", "Ollama & Local LLMs"),
+    ("chroma-core/chroma", "ChromaDB Vector"),
+    ("qdrant/qdrant", "Qdrant Vector Engine"),
+    ("weaviate/weaviate", "Weaviate Vector DB"),
+    ("pinecone-io/pinecone", "Pinecone Vector"),
+    ("modelcontextprotocol", "MCP & Agent Tools"),
+    ("vercel/next.js", "Next.js 15 & React 19"),
+    ("withastro/astro", "Astro Web Framework"),
+    ("tailwindlabs/tailwindcss", "Tailwind CSS v4"),
+    ("pydantic/pydantic", "Pydantic v2"),
+    ("prisma/prisma", "Prisma ORM"),
+    ("drizzle-team/drizzle", "Drizzle ORM"),
+    ("oven-sh/bun", "Bun Runtime"),
+    ("supabase/supabase", "Supabase"),
+    ("fastapi/fastapi", "FastAPI"),
+    ("boto/boto3", "AWS (Boto3)"),
+    ("googleapis/python-genai", "GCP (GenAI)"),
+]
+
+
+def _url_to_ecosystem(url: str) -> str:
+    """Map a source URL to its ecosystem label for sidebar bucketing."""
+    lower = url.lower()
+    for fragment, label in _URL_ECOSYSTEM_MAP:
+        if fragment.lower() in lower:
+            return label
+    # Fallback: extract readable name from domain
+    domain = urlparse(url).netloc.replace("www.", "")
+    if domain:
+        parts = domain.split(".")
+        return parts[0].capitalize() if parts[0] not in {"raw", "docs", "api"} else (parts[1].capitalize() if len(parts) > 1 else "Custom")
+    return "Custom"
+
+
 def _normalize(raw: dict[str, Any], default_url: str, execution_engine: str) -> dict[str, Any]:
     title = str(raw.get("title") or raw.get("name") or raw.get("headline") or "").strip()
     if not title or len(title) < 3:
@@ -788,9 +836,8 @@ def _normalize(raw: dict[str, Any], default_url: str, execution_engine: str) -> 
         entry_id = str(uuid.uuid5(uuid.NAMESPACE_URL, source_url + "#" + title))
 
     ecosystem = str(raw.get("ecosystem") or "").strip()
-    if not ecosystem:
-        domain = urlparse(source_url).netloc.replace("www.", "")
-        ecosystem = domain.split(".")[0].capitalize() if domain else "Custom"
+    if not ecosystem or ecosystem.upper() in {"RAW", "DOCS", "GITHUB", "CUSTOM", "API"}:
+        ecosystem = _url_to_ecosystem(source_url)
 
     affected_code = raw.get("affected_code")
     if not isinstance(affected_code, list):

@@ -5,20 +5,20 @@ DriftWatch is a local-first developer intelligence radar for API breaking change
 The complete file-level diagram is in [`architecture.pdf`](./architecture.pdf).
 
 ## End-to-End Data Flow
-
-1. The Next.js dashboard or CLI submits one or more public documentation URLs.
-2. `backend/scraper.py` validates targets, submits the complete URL batch to the configured Bright Data DCA collector, and only uses direct specialized Markdown/HTML parsers when `direct` is explicitly selected or DCA is not configured for local development.
-3. Raw records are normalized into `DocUpdateItem` objects from `backend/models.py`. Invalid records are quarantined; valid records are written to SQLite with FTS5 search support by `backend/db.py`.
+ 
+1. The Next.js dashboard or CLI submits one or more public documentation URLs (29 ecosystem feeds monitored by default).
+2. `backend/scraper.py` validates targets, submits the complete URL batch to the configured Bright Data DCA collector in an async non-blocking task, parses JSON/JSONL response payloads, and uses direct specialized Markdown/HTML parsers when `direct` is explicitly selected or DCA is not configured for local development.
+3. Raw records are normalized into `DocUpdateItem` objects with canonical ecosystem tags from `backend/models.py`. Invalid records are quarantined; valid records are written to SQLite with FTS5 search support by `backend/db.py`.
 4. The dashboard reads updates, health, watcher state, audit results, impact matches, and self-healing evidence from `backend/main.py`.
 5. The impact mapper and manifest auditor compare indexed advisories with local or remote source code and produce candidate migration diffs. They do not modify application code automatically.
-
+ 
 ## Execution Engines
-
+ 
 | Mode | Behavior |
 | :--- | :--- |
 | `direct` | Uses the built-in public-feed parsers only. |
 | `bright_data_dca` | Requires both Bright Data credentials and a collector ID. It fails explicitly if the DCA run cannot be verified and never falls back silently. |
-| `auto` | Sends every requested URL to Bright Data when both DCA credentials are configured. It does not direct-scrape gaps after a DCA run. Without DCA configuration, it uses local parsers as a development fallback. |
+| `auto` | Sends every requested URL to Bright Data when both DCA credentials are configured, handling both JSON and JSONL datasets. Without DCA configuration, it uses local parsers as a development fallback. |
 
 ## Bright Data Self-Healing Loop
 

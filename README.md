@@ -39,6 +39,12 @@ Autonomous remote repository analysis, multi-model OpenRouter LLM code review, a
 - **CLI**: `python3 -m backend.cli github-scan --repo owner/repo` and `python3 -m backend.cli pr --repo owner/repo --file path/to/file`
 - **UI**: Dedicated **GitHub AI Studio & PR** tab in the dashboard.
 
+### 5. Live Radar HUD & Non-Blocking Scraper Studio
+- **Asynchronous Background Scanning**: Scans run in a non-blocking background task (`POST /api/scrape` returns instantly with a `job_key`), allowing the dashboard to update dynamically as records are validated and saved.
+- **Visual Radar HUD**: Neon radar sweep scope, rotating target node blips across 29 documentation feeds, live telemetry terminal logs, and 4-stage pipeline status indicators.
+- **Holographic Shimmer Skeletons**: Provides instant visual structure while Bright Data DCA polls and extracts upstream records.
+- **Ecosystem Bucketing**: Canonical URL-to-ecosystem mapping organizing advisories into their respective documentation feeds in the sidebar.
+
 ---
 
 ## Bright Data CLI Authentication
@@ -72,17 +78,17 @@ DriftWatch proves full recovery across all 4 stages without modifying any downst
 
 ## High-Velocity & Long-Tail Ecosystem Feeds
 
-DriftWatch indexes both major cloud APIs and niche/long-tail AI tools through authentic HTML & Markdown changelog scrapers:
+DriftWatch indexes 29 AI and web ecosystem documentation changelogs:
 - **LangChain & LangGraph Agents**: Rapid Runnable / tool schema definitions.
 - **CrewAI Multi-Agent Framework**: Process orchestration and tool contract updates.
 - **LlamaIndex & RAG Engine**: Vector store index and retrieval contract changes.
-- **Pinecone Vector DB**: High-velocity index schema changes.
-- **Next.js 15 & React 19**: Async params, Server Actions, and rendering contracts.
-- **Pydantic v2**: Strict model validation and serializer contracts.
+- **LiteLLM, DSPy, vLLM, Instructor**: Gateway routing, inference, and structured output specs.
+- **Pinecone, ChromaDB, Qdrant, Weaviate**: High-velocity vector index schema changes.
+- **Next.js 15 & React 19, Astro, Bun, Tailwind CSS v4**: Async params, Server Actions, and styling contracts.
+- **Pydantic v2, Prisma, Drizzle ORM**: Strict model validation and database schema contracts.
 - **Ollama Local LLM Runner**: Local model tool-calling specs.
-- **ChromaDB Vector Database**: Vector indexing and embedding schema updates.
 - **Model Context Protocol (MCP)**: Tool schema contracts, SSE/stdio transports.
-- **Stripe, OpenAI, Anthropic, AWS Boto3, GCP GenAI, Supabase, FastAPI**: Live documentation changelogs.
+- **Stripe, OpenAI, Anthropic, AWS Boto3, GCP GenAI, Supabase, FastAPI**: Official changelogs.
 
 ---
 
@@ -108,7 +114,7 @@ The unit suite is deterministic and isolates external services with mocks. The f
 ## Runtime Behavior and Safety Boundaries
 
 - `force_engine=bright_data_dca` requires both `BRIGHT_DATA_API_TOKEN` and `BRIGHT_DATA_COLLECTOR_ID`; it never silently falls back to direct scraping.
-- `force_engine=auto` submits the complete requested URL batch to Bright Data when both DCA credentials are configured. It never fills gaps with direct scraping after a DCA run. If DCA is not configured, auto mode uses the local parsers as a development fallback.
+- `force_engine=auto` submits the complete requested URL batch to Bright Data when both DCA credentials are configured. It supports standard JSON and JSONL datasets returned by Scraper Studio. If DCA is not configured, auto mode uses local parsers as a development fallback.
 - Scrape targets must be public HTTP(S) URLs. The API rejects credentials in URLs, private or loopback network targets, and government or military domains.
 - The API is restricted to local requests, and `run.sh` binds the backend to `127.0.0.1`.
 
