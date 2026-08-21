@@ -4,10 +4,14 @@
  * the DriftWatch DCA output contract.
  */
 const targetUrl = (typeof input !== 'undefined' && input && input.url)
-  ? String(input.url)
+  ? String(input.url).trim()
   : (typeof location !== 'undefined' && location.href)
-    ? String(location.href)
-    : 'https://docs.stripe.com/changelog';
+    ? String(location.href).trim()
+    : '';
+
+if (!targetUrl || !targetUrl.startsWith('http')) {
+  throw new Error('Bright Data Collector Parser error: Missing or invalid required input.url parameter.');
+}
 
 function ecosystemFor(url) {
   try {

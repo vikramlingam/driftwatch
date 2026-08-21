@@ -44,7 +44,7 @@ This guide walks you through setting up a Bright Data Scraper Studio collector f
 8. Once saved, click on the collector details page to find your **Collector ID**.
    The Collector ID usually looks like:
    ```
-   c_mszrbi1u1hs5ef50n3
+   c_mt2slsnef0likmk7o
    ```
    (or starts with `c_` followed by letters and numbers).
 

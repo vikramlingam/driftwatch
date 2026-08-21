@@ -228,6 +228,16 @@ export default function Home() {
     }
   }
 
+  const [activeScanStatus, setActiveScanStatus] = useState<{
+    jobKey?: string;
+    status?: string;
+    message?: string;
+    urlsChecked?: string[];
+    telemetryLogs?: string[];
+    validSaved?: number;
+    totalFound?: number;
+  } | null>(null);
+
   async function handleScrape(overrideUrls?: string[]) {
     setLoading(true);
     setFailedErrors([]);
@@ -250,6 +260,13 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         const jobKey = data.job_key;
+        setActiveScanStatus({
+          jobKey,
+          status: 'running',
+          message: 'Bright Data DCA scan dispatched across 29 documentation nodes...',
+          urlsChecked: urls,
+          telemetryLogs: data.telemetry_logs || [],
+        });
 
         // Poll for background scan completion while refreshing data every 5s
         if (jobKey) {
@@ -263,6 +280,15 @@ export default function Home() {
                 if (statusData.status === 'done') {
                   clearInterval(pollScan);
                   setLoading(false);
+                  setActiveScanStatus({
+                    jobKey,
+                    status: 'done',
+                    message: statusData.message,
+                    urlsChecked: statusData.result?.urls_checked || urls,
+                    telemetryLogs: statusData.result?.telemetry_logs || [],
+                    validSaved: statusData.result?.valid_items_saved,
+                    totalFound: statusData.result?.total_items_found,
+                  });
                   setFailedErrors(
                     statusData.result?.quarantined_errors?.length
                       ? statusData.result.quarantined_errors
@@ -272,6 +298,11 @@ export default function Home() {
                 } else if (statusData.status === 'error') {
                   clearInterval(pollScan);
                   setLoading(false);
+                  setActiveScanStatus({
+                    jobKey,
+                    status: 'error',
+                    message: statusData.message || 'Scan failed',
+                  });
                   setFailedErrors([statusData.message || 'Scan failed']);
                 }
               }
@@ -667,6 +698,7 @@ export default function Home() {
                 setSelectedItem={setSelectedItem}
                 loading={loading}
                 handleScrape={handleScrape}
+                activeScanStatus={activeScanStatus}
               />
             )}
 

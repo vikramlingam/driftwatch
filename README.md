@@ -175,7 +175,7 @@ The automated suite verifies:
 The repository contains complete artifacts and evidence for all hackathon submission requirements:
 
 ### 1. Bright Data Custom Scraper Studio Collector
-- **Collector ID**: `c_mszrbi1u1hs5ef50n3` (`stripe-docs-changelog`)
+- **Collector ID**: `c_mt2slsnef0likmk7o` (`universal-docs-changelog`)
 - **Collector Definition**: Exported in [`bright_data/collector_definition.json`](./bright_data/collector_definition.json)
 - **Scraper Studio Interaction Script**: Exported in [`bright_data/collector_interaction.js`](./bright_data/collector_interaction.js)
 - **Universal Cheerio DOM/Markdown Parser Script**: Exported in [`bright_data/collector_parser.js`](./bright_data/collector_parser.js)

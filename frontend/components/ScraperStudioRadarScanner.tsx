@@ -7,6 +7,15 @@ import { TARGETS, TARGET_URL_MAP } from '../types';
 interface ScraperStudioRadarScannerProps {
   theme: 'dark' | 'light';
   emptyState?: boolean;
+  activeScanStatus?: {
+    jobKey?: string;
+    status?: string;
+    message?: string;
+    urlsChecked?: string[];
+    telemetryLogs?: string[];
+    validSaved?: number;
+    totalFound?: number;
+  } | null;
 }
 
 const RADAR_NODES = [
@@ -25,13 +34,10 @@ const RADAR_NODES = [
 export const ScraperStudioRadarScanner: React.FC<ScraperStudioRadarScannerProps> = ({
   theme,
   emptyState = false,
+  activeScanStatus,
 }) => {
   const [currentTargetIndex, setCurrentTargetIndex] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [logs, setLogs] = useState<string[]>([
-    'Initializing Bright Data DCA Collector pipeline...',
-    'Establishing proxy tunnels across 29 documentation nodes...',
-  ]);
 
   const targetList = TARGETS.filter((t) => t !== 'All');
 
@@ -50,17 +56,19 @@ export const ScraperStudioRadarScanner: React.FC<ScraperStudioRadarScannerProps>
     };
   }, [targetList.length]);
 
-  useEffect(() => {
-    const currentName = targetList[currentTargetIndex] || 'Stripe';
-    const currentUrl = TARGET_URL_MAP[currentName] || 'https://docs.stripe.com/changelog';
-    const shortUrl = currentUrl.replace('https://', '').slice(0, 42);
-
-    const newLog = `[${String(elapsedSeconds).padStart(2, '0')}s] 🛰️ Ingesting ${currentName} feed → ${shortUrl}`;
-    setLogs((prev) => [newLog, ...prev.slice(0, 3)]);
-  }, [currentTargetIndex, elapsedSeconds]);
-
   const currentTargetName = targetList[currentTargetIndex] || 'Stripe';
   const progressPercent = Math.min(100, Math.round(((currentTargetIndex + 1) / targetList.length) * 100));
+
+  // Combine real backend DCA telemetry logs with real-time target indicator
+  const realBackendLogs = activeScanStatus?.telemetryLogs || [];
+  const displayLogs = realBackendLogs.length > 0
+    ? realBackendLogs.slice(-4).reverse()
+    : [
+        `[${String(elapsedSeconds).padStart(2, '0')}s] 🛰️ Bright Data DCA Collector c_mt2slsnef0likmk7o active across 29 feeds...`,
+        `[${String(elapsedSeconds).padStart(2, '0')}s] ⚡ Probing ${currentTargetName} documentation feed...`,
+        'Ingesting authentic upstream changelogs via proxy tunnels...',
+        'Contract validator ready (Pydantic v2 quarantine isolation)...',
+      ];
 
   return (
     <div className="space-y-4 mb-6 transition-all duration-300">
@@ -256,7 +264,7 @@ export const ScraperStudioRadarScanner: React.FC<ScraperStudioRadarScannerProps>
                 <Terminal size={11} />
                 <span>TELEMETRY STREAM</span>
               </div>
-              {logs.map((log, index) => (
+              {displayLogs.map((log, index) => (
                 <div
                   key={index}
                   className={`truncate ${

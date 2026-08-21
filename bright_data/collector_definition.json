@@ -1,9 +1,9 @@
 {
-  "collector_id": "c_mszrbi1u1hs5ef50n3",
+  "collector_id": "c_mt2slsnef0likmk7o",
   "name": "universal-docs-changelog",
   "description": "Bright Data Scraper Studio collector for extracting API breaking changes, deprecations, schema changes, and feature updates from any public documentation or changelog URL.",
   "platform": "Bright Data Scraper Studio (Data Collector API)",
-  "trigger_endpoint": "https://api.brightdata.com/dca/trigger?collector=c_mszrbi1u1hs5ef50n3&queue_next=1",
+  "trigger_endpoint": "https://api.brightdata.com/dca/trigger?collector=c_mt2slsnef0likmk7o&queue_next=1",
   "dataset_endpoint": "https://api.brightdata.com/dca/dataset?id={job_id}",
   "input_schema": {
     "url": {

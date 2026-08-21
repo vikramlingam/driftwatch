@@ -18,6 +18,15 @@ interface LiveRadarTabProps {
   setSelectedItem: (item: DocUpdate) => void;
   loading: boolean;
   handleScrape: (overrideUrls?: string[]) => Promise<void>;
+  activeScanStatus?: {
+    jobKey?: string;
+    status?: string;
+    message?: string;
+    urlsChecked?: string[];
+    telemetryLogs?: string[];
+    validSaved?: number;
+    totalFound?: number;
+  } | null;
 }
 
 export const LiveRadarTab: React.FC<LiveRadarTabProps> = ({
@@ -34,6 +43,7 @@ export const LiveRadarTab: React.FC<LiveRadarTabProps> = ({
   setSelectedItem,
   loading,
   handleScrape,
+  activeScanStatus,
 }) => {
   const categories = [
     { label: 'All Updates', value: 'ALL' },
@@ -102,6 +112,7 @@ export const LiveRadarTab: React.FC<LiveRadarTabProps> = ({
         <ScraperStudioRadarScanner
           theme={theme}
           emptyState={filteredUpdates.length === 0}
+          activeScanStatus={activeScanStatus}
         />
       )}
 
