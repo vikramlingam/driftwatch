@@ -1,0 +1,30 @@
+url,ecosystem
+https://docs.stripe.com/changelog,Stripe
+https://raw.githubusercontent.com/openai/openai-python/main/CHANGELOG.md,OpenAI
+https://raw.githubusercontent.com/anthropics/anthropic-sdk-python/main/CHANGELOG.md,Anthropic
+https://raw.githubusercontent.com/langchain-ai/langchain/master/libs/core/CHANGELOG.md,LangChain & Agents
+https://raw.githubusercontent.com/langchain-ai/langgraph/main/CHANGELOG.md,LangGraph (Stateful)
+https://raw.githubusercontent.com/crewAIInc/crewAI/main/CHANGELOG.md,CrewAI & Multi-Agent
+https://raw.githubusercontent.com/BerriAI/litellm/main/CHANGELOG.md,LiteLLM (AI Gateway)
+https://raw.githubusercontent.com/stanfordnlp/dspy/main/CHANGELOG.md,DSPy (Prompt Optimizer)
+https://raw.githubusercontent.com/vllm-project/vllm/main/CHANGELOG.md,vLLM (Inference Engine)
+https://raw.githubusercontent.com/huggingface/transformers/main/CHANGELOG.md,Hugging Face Transformers
+https://raw.githubusercontent.com/jxnl/instructor/main/CHANGELOG.md,Instructor (Structured LLM)
+https://raw.githubusercontent.com/run-llama/llama_index/main/CHANGELOG.md,LlamaIndex & RAG
+https://raw.githubusercontent.com/ollama/ollama/main/CHANGELOG.md,Ollama & Local LLMs
+https://raw.githubusercontent.com/chroma-core/chroma/main/CHANGELOG.md,ChromaDB Vector
+https://raw.githubusercontent.com/qdrant/qdrant/master/CHANGELOG.md,Qdrant Vector Engine
+https://raw.githubusercontent.com/weaviate/weaviate/master/CHANGELOG.md,Weaviate Vector DB
+https://raw.githubusercontent.com/pinecone-io/pinecone-python-client/main/CHANGELOG.md,Pinecone Vector
+https://raw.githubusercontent.com/modelcontextprotocol/specification/main/README.md,MCP & Agent Tools
+https://raw.githubusercontent.com/vercel/next.js/canary/release-notes.md,Next.js 15 & React 19
+https://raw.githubusercontent.com/withastro/astro/main/packages/astro/CHANGELOG.md,Astro Web Framework
+https://raw.githubusercontent.com/tailwindlabs/tailwindcss/master/CHANGELOG.md,Tailwind CSS v4
+https://raw.githubusercontent.com/pydantic/pydantic/main/docs/release-notes.md,Pydantic v2
+https://raw.githubusercontent.com/prisma/prisma/main/CHANGELOG.md,Prisma ORM
+https://raw.githubusercontent.com/drizzle-team/drizzle-orm/main/CHANGELOG.md,Drizzle ORM
+https://raw.githubusercontent.com/oven-sh/bun/main/CHANGELOG.md,Bun Runtime
+https://raw.githubusercontent.com/supabase/supabase-js/master/CHANGELOG.md,Supabase
+https://raw.githubusercontent.com/fastapi/fastapi/master/docs/en/docs/release-notes.md,FastAPI
+https://raw.githubusercontent.com/boto/boto3/develop/CHANGELOG.rst,AWS (Boto3)
+https://raw.githubusercontent.com/googleapis/python-genai/main/CHANGELOG.md,GCP (GenAI)
