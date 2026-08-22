@@ -6,6 +6,8 @@ Drift Watch is a developer intelligence radar for API breaking changes, tool sch
 
 The complete file-level architecture is documented in [`architecture.pdf`](./architecture.pdf), including every backend, frontend, test, launcher, and Bright Data source file.
 
+---
+
 ## Core Capabilities
 
 ### 1. Local Code Impact Mapper (Candidate Analyzer)
@@ -47,21 +49,6 @@ Autonomous remote repository analysis, multi-model OpenRouter LLM code review, a
 
 ---
 
-## Bright Data CLI Authentication
-
-Before running the AI scraper heal/approve commands locally or in CI, authenticate the Bright Data CLI:
-
-```bash
-# 1. Authenticate with your Bright Data Account / API Token:
-npx @brightdata/cli bdata login
-
-# Or set your environment variable in .env:
-BRIGHT_DATA_API_TOKEN=your_token_here
-BRIGHT_DATA_COLLECTOR_ID=your_collector_id_here
-```
-
----
-
 ## 4-Stage Closed-Loop Self-Healing Lifecycle
 
 DriftWatch proves full recovery across all 4 stages without modifying any downstream application code:
@@ -78,7 +65,7 @@ DriftWatch proves full recovery across all 4 stages without modifying any downst
 
 ## High-Velocity & Long-Tail Ecosystem Feeds
 
-DriftWatch indexes 29 AI and web ecosystem documentation changelogs:
+DriftWatch indexes 29 AI and web ecosystem documentation changelogs (available in [`bright_data/target_urls_29.csv`](./bright_data/target_urls_29.csv)):
 - **LangChain & LangGraph Agents**: Rapid Runnable / tool schema definitions.
 - **CrewAI Multi-Agent Framework**: Process orchestration and tool contract updates.
 - **LlamaIndex & RAG Engine**: Vector store index and retrieval contract changes.
@@ -92,31 +79,98 @@ DriftWatch indexes 29 AI and web ecosystem documentation changelogs:
 
 ---
 
-## Quick Start
+## Quick Start & Installation
 
-### One-Click Launch (Recommended)
+### Prerequisites
+- **Python**: 3.11+ (Python 3.12 or 3.13 recommended)
+- **Node.js**: 18.0+ (Node.js 20+ recommended) & `npm`
 
+---
+
+### Step-by-Step Setup
+
+#### 1. Clone the Repository
 ```bash
+git clone https://github.com/vikramlingam/driftwatch.git
+cd driftwatch
+```
+
+#### 2. Configure Environment Variables
+Copy `.env.example` to `.env`:
+```bash
+cp .env.example .env
+```
+Edit `.env` to configure your credentials (see [`SCRAPER_STUDIO_SETUP.md`](./SCRAPER_STUDIO_SETUP.md) for collector setup):
+```ini
+BRIGHT_DATA_API_TOKEN=your_bright_data_token_here
+BRIGHT_DATA_COLLECTOR_ID=c_mt2slsnef0likmk7o
+DATABASE_PATH=driftwatch.db
+DEFAULT_TARGET_URLS=https://docs.stripe.com/changelog
+FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+OPENROUTER_API_KEY=your_openrouter_api_key_optional
+OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+GITHUB_TOKEN=your_github_token_optional
+```
+
+#### 3. Install Dependencies
+
+##### Python Backend:
+```bash
+# Optional: create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate   # On Windows: venv\Scripts\activate
+
+# Install Python requirements
+pip install -r requirements.txt
+```
+
+##### Next.js Frontend:
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+---
+
+### Running DriftWatch
+
+#### Option A: One-Click Launcher (Recommended)
+Make the launch script executable and run:
+```bash
+chmod +x run.sh
 ./run.sh
 ```
-This single command checks Python/Node dependencies, starts the FastAPI backend on the loopback interface at `http://localhost:8000`, and launches the Next.js frontend on `http://localhost:3000`. The backend does not automatically start a paid/network scrape during startup; use **Scan All Docs** or the scan API explicitly. Press `Ctrl+C` anytime to cleanly stop both services.
+This script automatically checks environment variables, installs any missing dependencies, starts the FastAPI backend on `http://127.0.0.1:8000`, and launches the Next.js frontend on `http://localhost:3000`. Press `Ctrl+C` anytime to cleanly terminate both services.
 
-### Automated Tests
+#### Option B: Manual Launch (Two Terminals)
+
+**Terminal 1 (Backend):**
+```bash
+python3 -m uvicorn backend.main:app --port 8000 --host 127.0.0.1
+```
+
+**Terminal 2 (Frontend):**
+```bash
+cd frontend
+npm run dev -- -p 3000
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## Bright Data CLI Authentication
+
+To enable AI self-healing repairs from your machine or terminal, log in to the Bright Data CLI:
 
 ```bash
-pytest -q -W error
-ruff check backend tests
-python3 -m compileall -q backend main.py
-cd frontend && npm run build
+# Authenticate with your Bright Data Account / API Token:
+npx @brightdata/cli bdata login
 ```
-The unit suite is deterministic and isolates external services with mocks. The final Bright Data, GitHub, OpenRouter, and video checks still require the entrant's credentials or submission-portal actions.
 
-## Runtime Behavior and Safety Boundaries
-
-- `force_engine=bright_data_dca` requires both `BRIGHT_DATA_API_TOKEN` and `BRIGHT_DATA_COLLECTOR_ID`; it never silently falls back to direct scraping.
-- `force_engine=auto` submits the complete requested URL batch to Bright Data when both DCA credentials are configured. It supports standard JSON and JSONL datasets returned by Scraper Studio. If DCA is not configured, auto mode uses local parsers as a development fallback.
-- Scrape targets must be public HTTP(S) URLs. The API rejects credentials in URLs, private or loopback network targets, and government or military domains.
-- The API is restricted to local requests, and `run.sh` binds the backend to `127.0.0.1`.
+For full details on the Scraper Studio collector setup, universal Cheerio parser, interaction code, and 29-feed batch dataset, see [`SCRAPER_STUDIO_SETUP.md`](./SCRAPER_STUDIO_SETUP.md).
 
 ---
 
@@ -147,10 +201,22 @@ python3 -m backend.cli pr --repo owner/repo --file app/payments.py --symbol stri
 
 ---
 
-## Automated Test and Contract Coverage
+## Automated Test and Quality Verification
+
+Run the full automated test suite and code quality checks:
 
 ```bash
+# 1. Run full test suite with zero warnings
 pytest -q -W error
+
+# 2. Code linting
+ruff check backend tests
+
+# 3. Bytecode validation
+python3 -m compileall -q backend main.py
+
+# 4. Production frontend build check
+cd frontend && npm run build && cd ..
 ```
 
 The automated suite verifies:
@@ -170,6 +236,15 @@ The automated suite verifies:
 
 ---
 
+## Runtime Behavior and Safety Boundaries
+
+- `force_engine=bright_data_dca` requires both `BRIGHT_DATA_API_TOKEN` and `BRIGHT_DATA_COLLECTOR_ID`; it never silently falls back to direct scraping.
+- `force_engine=auto` submits the complete requested URL batch to Bright Data when both DCA credentials are configured. It supports standard JSON and JSONL datasets returned by Scraper Studio. If DCA is not configured, auto mode uses local parsers as a development fallback.
+- Scrape targets must be public HTTP(S) URLs. The API rejects credentials in URLs, private or loopback network targets, and government or military domains.
+- The API is restricted to local requests, and `run.sh` binds the backend to `127.0.0.1`.
+
+---
+
 ## Hackathon Submission Deliverables & Compliance
 
 The repository contains complete artifacts and evidence for all hackathon submission requirements:
@@ -179,6 +254,7 @@ The repository contains complete artifacts and evidence for all hackathon submis
 - **Collector Definition**: Exported in [`bright_data/collector_definition.json`](./bright_data/collector_definition.json)
 - **Scraper Studio Interaction Script**: Exported in [`bright_data/collector_interaction.js`](./bright_data/collector_interaction.js)
 - **Universal Cheerio DOM/Markdown Parser Script**: Exported in [`bright_data/collector_parser.js`](./bright_data/collector_parser.js)
+- **Target Feeds Dataset (29 URLs)**: Exported in [`bright_data/target_urls_29.csv`](./bright_data/target_urls_29.csv)
 - **Example Structured Output Dataset**: Exported in [`bright_data/example_structured_output.json`](./bright_data/example_structured_output.json)
 
 ### 2. Public Data Only
