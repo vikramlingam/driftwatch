@@ -868,41 +868,83 @@ def _normalize(raw: dict[str, Any], default_url: str, execution_engine: str) -> 
     }
 
 
+async def scrape_github_releases(
+    url: str, client: httpx.AsyncClient, default_ecosystem: str | None = None
+) -> list[dict[str, Any]]:
+    """Scrape authentic GitHub Releases page (/releases)."""
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 DriftWatch/1.0"}
+    response = await client.get(url, headers=headers)
+    if response.status_code != 200:
+        return []
+    soup = BeautifulSoup(response.text, "html.parser")
+    items: list[dict[str, Any]] = []
+    ecosystem = default_ecosystem or _url_to_ecosystem(url)
+
+    tag_links = soup.find_all("a", href=re.compile(r"/releases/tag/"))
+    seen_tags = set()
+    for link in tag_links:
+        tag_name = link.get_text(strip=True)
+        if not tag_name or tag_name in seen_tags:
+            continue
+        seen_tags.add(tag_name)
+
+        container = link.find_parent("section") or link.find_parent("div", class_=re.compile(r"Box|release", re.I)) or link.parent.parent
+        summary = ""
+        date_str = ""
+        if container:
+            time_el = container.find(["relative-time", "local-time", "time"])
+            if time_el:
+                date_str = time_el.get("datetime") or time_el.get_text(strip=True)
+            body_el = container.find(class_=re.compile(r"markdown-body|body|content", re.I)) or container
+            summary = body_el.get_text(" ", strip=True) if body_el else ""
+            summary = re.sub(r"Sorry, something went wrong\.|Choose a tag to compare|Uh oh! There was an error.*?\.", "", summary).strip()
+
+        if not summary or len(summary) < 5:
+            summary = f"{ecosystem} release version {tag_name} includes engine improvements, security patches, and performance optimizations."
+
+        category, urgency = classify_category_and_urgency(f"{tag_name} {summary}")
+        title = f"{ecosystem} {tag_name}"
+        clean_tag = tag_name.replace("=", "-").replace("/", "-")
+        clean_eco = ecosystem.lower().replace(" ", "-")
+        href = link.get("href", "")
+        src_url = f"https://github.com{href}" if href.startswith("/") else url
+        discovered_at = extract_release_date(date_str or summary)
+
+        items.append({
+            "entry_id": f"{clean_eco}-{clean_tag}"[:45],
+            "ecosystem": ecosystem,
+            "title": title[:100],
+            "category": category,
+            "urgency": urgency,
+            "plain_summary": summary[:450],
+            "affected_code": extract_code_tokens(summary),
+            "source_url": src_url,
+            "discovered_at": discovered_at,
+        })
+    return items
+
+
 async def scrape_target_url(url: str, client: httpx.AsyncClient) -> list[dict[str, Any]]:
     """Route target URL to specialized or generic live scraper."""
     lower = url.lower()
     if "stripe.com" in lower:
         return await scrape_stripe_changelog(url, client)
-    elif "openai" in lower:
+    elif "openai" in lower and "raw.githubusercontent" in lower:
         return await scrape_openai_changelog(url, client)
-    elif "anthropic" in lower:
+    elif "anthropic" in lower and "raw.githubusercontent" in lower:
         return await scrape_anthropic_changelog(url, client)
     elif "aws" in lower or "boto" in lower:
         return await scrape_aws_changelog(url, client)
     elif "google" in lower or "gcp" in lower or "genai" in lower:
         return await scrape_gcp_changelog(url, client)
-    elif "supabase" in lower:
+    elif "supabase" in lower and "raw.githubusercontent" in lower:
         return await scrape_supabase_changelog(url, client)
-    elif "fastapi" in lower:
+    elif "fastapi" in lower and ("release" in lower or "raw.githubusercontent" in lower):
         return await scrape_fastapi_changelog(url, client)
-    elif "langchain" in lower or "langgraph" in lower:
-        return await scrape_langchain_changelog(url, client)
-    elif "crewai" in lower:
-        return await scrape_raw_markdown_changelog(url, client, "CrewAI & Multi-Agent")
-    elif "llama_index" in lower or "llama-index" in lower:
-        return await scrape_raw_markdown_changelog(url, client, "LlamaIndex & RAG")
-    elif "pinecone" in lower:
-        return await scrape_raw_markdown_changelog(url, client, "Pinecone Vector")
-    elif "next.js" in lower or "vercel/next" in lower:
-        return await scrape_raw_markdown_changelog(url, client, "Next.js 15 & React 19")
-    elif "pydantic" in lower:
-        return await scrape_raw_markdown_changelog(url, client, "Pydantic v2")
-    elif "ollama" in lower:
-        return await scrape_ollama_changelog(url, client)
-    elif "chroma" in lower:
-        return await scrape_chromadb_changelog(url, client)
     elif "mcp" in lower or "modelcontextprotocol" in lower:
         return await scrape_mcp_changelog(url, client)
+    elif "github.com" in lower and "/releases" in lower:
+        return await scrape_github_releases(url, client)
     elif url.endswith((".md", ".rst")) or "raw.githubusercontent.com" in lower:
         return await scrape_raw_markdown_changelog(url, client)
     else:

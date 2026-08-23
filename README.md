@@ -161,14 +161,39 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## Bright Data CLI Authentication
+## Bright Data CLI Authentication & Cloud AI Self-Healing
 
-To enable AI self-healing repairs from your machine or terminal, log in to the Bright Data CLI:
+DriftWatch features native, bidirectional integration with the official Bright Data CLI (`@brightdata/cli`) for cloud-based AI scraper self-healing (`bdata scraper heal` and `bdata scraper approve`).
+
+### 1. Authenticate with Bright Data CLI
+
+You can either log in interactively or export your API token directly:
 
 ```bash
-# Authenticate with your Bright Data Account / API Token:
+# Option A: Export from your .env file
+export BRIGHTDATA_API_KEY=$(grep BRIGHT_DATA_API_TOKEN .env | cut -d '=' -f2 | tr -d ' "')
+
+# Option B: Interactive login
 npx @brightdata/cli bdata login
 ```
+
+### 2. Run Cloud AI Scraper Self-Healing (`bdata scraper heal`)
+
+When target documentation HTML structure evolves or new release page layouts emerge, trigger Bright Data's Cloud AI Self-Healing pipeline:
+
+```bash
+# 1. Trigger AI code generation & preview test:
+npx -p @brightdata/cli bdata scraper heal c_mt2slsnef0likmk7o "Support GitHub releases and HTML changelogs"
+
+# 2. Approve and publish the healed collector code to production:
+npx -p @brightdata/cli bdata scraper approve c_mt2slsnef0likmk7o
+```
+
+#### What Happens During Cloud AI Self-Healing:
+- **`planner`**: Bright Data's LLM analyzes the issue description and target output schema.
+- **`control_preview_runner`**: A cloud headless browser container loads the target URLs and inspects the live DOM.
+- **`code_fixer`**: Bright Data synthesizes an updated Cheerio parser.
+- **`bdata scraper approve`**: Deploys and activates the healed collector code on Bright Data's cloud infrastructure.
 
 For full details on the Scraper Studio collector setup, universal Cheerio parser, interaction code, and 29-feed batch dataset, see [`SCRAPER_STUDIO_SETUP.md`](./SCRAPER_STUDIO_SETUP.md).
 

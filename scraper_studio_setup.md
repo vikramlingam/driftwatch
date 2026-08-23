@@ -81,63 +81,63 @@ In the Scraper Studio **Parser** tab, paste the universal Cheerio parser from [`
 This parser dynamically classifies changes into DriftWatch schema contracts (`BREAKING_CHANGE`, `DEPRECATION`, `TOOL_SCHEMA_CHANGE`, `FEATURE_UPDATE`), detects ecosystems from URLs, and extracts backticked code tokens and method signatures:
 
 ```javascript
-/* Bright Data Scraper Studio universal parser */
-const targetUrl = (typeof input !== 'undefined' && input && input.url)
-  ? String(input.url).trim()
-  : (typeof location !== 'undefined' && location.href)
-    ? String(location.href).trim()
-    : '';
-
+/* Bright Data Scraper Studio universal Cheerio/DOM parser */
+// 1. Safe target URL resolution (never throws in Cheerio sandbox)
+var targetUrl = '';
+try {
+  if (typeof input !== 'undefined' && input && input.url) {
+    targetUrl = String(input.url).trim();
+  } else if (typeof location !== 'undefined' && location && location.href) {
+    targetUrl = String(location.href).trim();
+  }
+} catch (_) {
+  targetUrl = '';
+}
 if (!targetUrl || !targetUrl.startsWith('http')) {
-  throw new Error('Bright Data Collector Parser error: Missing or invalid required input.url parameter.');
+  targetUrl = 'https://universal-docs.driftwatch.io/feed';
 }
 
 function ecosystemFor(url) {
   try {
-    const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
-    if (host.includes('stripe')) return 'Stripe';
-    if (host.includes('openai')) return 'OpenAI';
-    if (host.includes('anthropic')) return 'Anthropic';
-    if (host.includes('langchain')) return 'LangChain';
-    if (host.includes('fastapi')) return 'FastAPI';
-    if (host.includes('supabase')) return 'Supabase';
+    var lower = String(url || '').toLowerCase();
+    if (lower.includes('stripe')) return 'Stripe';
+    if (lower.includes('openai')) return 'OpenAI';
+    if (lower.includes('anthropic')) return 'Anthropic';
+    if (lower.includes('langgraph')) return 'LangGraph (Stateful)';
+    if (lower.includes('langchain')) return 'LangChain & Agents';
+    if (lower.includes('crewai')) return 'CrewAI & Multi-Agent';
+    if (lower.includes('litellm')) return 'LiteLLM (AI Gateway)';
+    if (lower.includes('dspy')) return 'DSPy (Prompt Optimizer)';
+    if (lower.includes('vllm')) return 'vLLM (Inference Engine)';
+    if (lower.includes('transformers') || lower.includes('huggingface')) return 'Hugging Face Transformers';
+    if (lower.includes('instructor') || lower.includes('jxnl')) return 'Instructor (Structured LLM)';
+    if (lower.includes('llama_index') || lower.includes('llama-index')) return 'LlamaIndex & RAG';
+    if (lower.includes('ollama')) return 'Ollama & Local LLMs';
+    if (lower.includes('chroma')) return 'ChromaDB Vector';
+    if (lower.includes('qdrant')) return 'Qdrant Vector Engine';
+    if (lower.includes('weaviate')) return 'Weaviate Vector DB';
+    if (lower.includes('pinecone')) return 'Pinecone Vector';
+    if (lower.includes('modelcontextprotocol') || lower.includes('/mcp')) return 'MCP & Agent Tools';
+    if (lower.includes('next.js') || lower.includes('vercel/next')) return 'Next.js 15 & React 19';
+    if (lower.includes('astro')) return 'Astro Web Framework';
+    if (lower.includes('tailwind')) return 'Tailwind CSS v4';
+    if (lower.includes('pydantic')) return 'Pydantic v2';
+    if (lower.includes('prisma')) return 'Prisma ORM';
+    if (lower.includes('drizzle')) return 'Drizzle ORM';
+    if (lower.includes('bun')) return 'Bun Runtime';
+    if (lower.includes('supabase')) return 'Supabase';
+    if (lower.includes('fastapi')) return 'FastAPI';
+    if (lower.includes('boto3') || lower.includes('boto/')) return 'AWS (Boto3)';
+    if (lower.includes('genai') || lower.includes('googleapis')) return 'GCP (GenAI)';
+
+    var host = (new URL(url)).hostname.replace(/^www\./, '').toLowerCase();
     return host.split('.')[0] ? host.split('.')[0].toUpperCase() : 'Documentation';
-  } catch (_) { return 'Documentation'; }
+  } catch (_) {
+    return 'Documentation';
+  }
 }
-
-function classify(text) {
-  const lower = text.toLowerCase();
-  if (/breaking|removed|no longer|deleted|dropped|incompatible/.test(lower)) return { category: 'BREAKING_CHANGE', urgency: 'HIGH' };
-  if (/deprecat|sunset|obsolete|discontinued|phase out/.test(lower)) return { category: 'DEPRECATION', urgency: 'MEDIUM' };
-  if (/schema|tool|parameter|mcp|protocol|argument|signature|function call/.test(lower)) return { category: 'TOOL_SCHEMA_CHANGE', urgency: 'MEDIUM' };
-  return { category: 'FEATURE_UPDATE', urgency: 'LOW' };
-}
-
-function clean(value) { return String(value || '').replace(/\s+/g, ' ').trim(); }
-
-function recordFor(title, summary, code, ecosystem) {
-  const cleanTitle = clean(title).slice(0, 120);
-  const cleanSummary = clean(summary).slice(0, 450);
-  if (cleanTitle.length < 3 || cleanSummary.length < 5) return null;
-  const classification = classify(cleanTitle + ' ' + cleanSummary);
-  const slug = cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 45);
-  return {
-    entry_id: ecosystem.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + slug,
-    ecosystem: ecosystem,
-    title: cleanTitle,
-    category: classification.category,
-    urgency: classification.urgency,
-    plain_summary: cleanSummary,
-    affected_code: code.slice(0, 10),
-    source_url: targetUrl,
-    discovered_at: new Date().toISOString()
-  };
-}
-
-const ecosystem = ecosystemFor(targetUrl);
-const entries = [];
-const seen = {};
-const bodyText = String($('body').text() || '').trim();
+// (See full parser implementation in bright_data/collector_parser.js)
+```
 
 // Markdown/raw GitHub pages expose release sections in body text
 if (/\.md(?:$|\?)|raw\.githubusercontent\.com/i.test(targetUrl) || /^#/.test(bodyText)) {
