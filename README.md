@@ -103,13 +103,13 @@ cp .env.example .env
 Edit `.env` to configure your credentials (see [`SCRAPER_STUDIO_SETUP.md`](./SCRAPER_STUDIO_SETUP.md) for collector setup):
 ```ini
 BRIGHT_DATA_API_TOKEN=your_bright_data_token_here
-BRIGHT_DATA_COLLECTOR_ID=c_mt2slsnef0likmk7o
+BRIGHT_DATA_COLLECTOR_ID=c_mt2slsnef0likmk7o or your collector ID
 DATABASE_PATH=driftwatch.db
-DEFAULT_TARGET_URLS=https://docs.stripe.com/changelog
+DEFAULT_TARGET_URLS=https://docs.stripe.com/changelog or example.com
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
 OPENROUTER_API_KEY=your_openrouter_api_key_optional
-OPENROUTER_MODEL=anthropic/claude-3.5-sonnet
+OPENROUTER_MODEL=anthropic/claude-3.5-sonnet or any other LLM provider
 GITHUB_TOKEN=your_github_token_optional
 ```
 
@@ -290,4 +290,4 @@ The repository contains complete artifacts and evidence for all hackathon submis
 - **Walkthrough Demo Video**: [Watch the DriftWatch Demo Video](https://youtu.be/8no3eei6sdM)
 
 ### 4. AI Coding Assistant Disclosure
-- **AI Tools Used**: Google Antigravity / Gemini was utilized as an AI coding assistant during hackathon development for code formatting, frontend Bento styling, and rapid refactoring.
+- **AI Tools Used**: Codex / Gemini was utilized as an AI coding assistant during hackathon development for code formatting, frontend Bento styling, writing markdown for submission and rapid refactoring.
