@@ -288,6 +288,3 @@ The repository contains complete artifacts and evidence for all hackathon submis
 
 ### 3. Demo Video
 - **Walkthrough Demo Video**: [Watch the DriftWatch Demo Video](https://youtu.be/8no3eei6sdM)
-
-### 4. AI Coding Assistant Disclosure
-- **AI Tools Used**: Codex / Gemini was utilized as an AI coding assistant during hackathon development for code formatting, frontend Bento styling, writing markdown for submission and rapid refactoring.
